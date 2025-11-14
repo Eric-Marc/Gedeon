@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
+    <title>Phone Location & Events</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Phone Location Tracker</title>
     <style>
         * {
             margin: 0;
@@ -12,37 +12,38 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
         }
 
         .container {
-            max-width: 600px;
+            max-width: 900px;
             margin: 0 auto;
-            background: white;
+            background: #ffffff;
             border-radius: 20px;
-            padding: 30px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 25px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
         }
 
         h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 28px;
+            font-size: 26px;
+            margin-bottom: 6px;
+            color: #111827;
         }
 
         .subtitle {
-            color: #666;
-            margin-bottom: 30px;
+            color: #6b7280;
             font-size: 14px;
+            margin-bottom: 20px;
         }
 
         .status {
-            padding: 15px;
+            padding: 12px 15px;
             border-radius: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
+            font-size: 14px;
             font-weight: 500;
         }
 
@@ -61,101 +62,114 @@
             color: #991b1b;
         }
 
-        .location-info {
-            background: #f3f4f6;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-
-        .location-info h3 {
-            color: #374151;
-            margin-bottom: 15px;
-            font-size: 16px;
-        }
-
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 0;
-            border-bottom: 1px solid #e5e7eb;
-        }
-
-        .info-row:last-child {
-            border-bottom: none;
-        }
-
-        .info-label {
-            color: #6b7280;
-            font-weight: 500;
-        }
-
-        .info-value {
-            color: #111827;
-            font-family: monospace;
-        }
-
         .button-group {
             display: flex;
+            flex-wrap: wrap;
             gap: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
 
         button {
             flex: 1;
-            padding: 15px 25px;
+            min-width: 120px;
             border: none;
             border-radius: 10px;
-            font-size: 16px;
+            padding: 12px 18px;
+            font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .btn-primary {
-            background: #667eea;
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-secondary {
-            background: #10b981;
-            color: white;
-        }
-
-        .btn-secondary:hover {
-            background: #059669;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(16, 185, 129, 0.4);
-        }
-
-        .btn-danger {
-            background: #ef4444;
-            color: white;
-        }
-
-        .btn-danger:hover {
-            background: #dc2626;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(239, 68, 68, 0.4);
+            transition: all 0.2s ease;
         }
 
         button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
             transform: none !important;
+            box-shadow: none !important;
+        }
+
+        .btn-primary {
+            background: #4f46e5;
+            color: #ffffff;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #4338ca;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px rgba(79, 70, 229, 0.4);
+        }
+
+        .btn-secondary {
+            background: #10b981;
+            color: #ffffff;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #059669;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: #ffffff;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: #dc2626;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px rgba(239, 68, 68, 0.4);
+        }
+
+        .section {
+            background: #f9fafb;
+            border-radius: 14px;
+            padding: 15px 18px;
+            margin-bottom: 15px;
+        }
+
+        .section h2 {
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: #111827;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 10px;
+            font-size: 13px;
+        }
+
+        .info-label {
+            color: #6b7280;
+        }
+
+        .info-value {
+            color: #111827;
+            font-family: monospace;
+            text-align: right;
+        }
+
+        .map-container {
+            margin-top: 10px;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid #e5e7eb;
+        }
+
+        .map-container iframe {
+            width: 100%;
+            height: 260px;
+            border: 0;
         }
 
         .map-link {
             display: inline-block;
-            margin-top: 10px;
-            color: #667eea;
+            margin-top: 6px;
+            font-size: 13px;
             text-decoration: none;
+            color: #4f46e5;
             font-weight: 500;
         }
 
@@ -163,273 +177,430 @@
             text-decoration: underline;
         }
 
-        .latest-map {
-            margin-top: 15px;
-            border-radius: 10px;
-            overflow: hidden;
+        .events-list {
+            list-style: none;
+            margin-top: 10px;
         }
 
-        .latest-map iframe {
+        .event-item {
+            background: #ffffff;
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin-bottom: 10px;
+            border: 1px solid #e5e7eb;
+        }
+
+        .event-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: #111827;
+        }
+
+        .event-meta {
+            font-size: 12px;
+            color: #6b7280;
+            margin-bottom: 6px;
+        }
+
+        .event-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .event-link {
+            font-size: 12px;
+            text-decoration: none;
+            color: #2563eb;
+        }
+
+        .event-link:hover {
+            text-decoration: underline;
+        }
+
+        .event-map {
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #e5e7eb;
+            margin-top: 4px;
+        }
+
+        .event-map iframe {
             width: 100%;
-            height: 250px;
+            height: 180px;
             border: 0;
         }
 
-        @media (max-width: 480px) {
-            .button-group {
-                flex-direction: column;
+        .hint {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 4px;
+        }
+
+        @media (max-width: 640px) {
+            .info-grid {
+                grid-template-columns: 1fr;
+                text-align: left;
+            }
+            .info-value {
+                text-align: left;
             }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>📍 Phone Location Tracker</h1>
-        <p class="subtitle">
-            Envoie la position de ton téléphone au serveur et affiche le dernier point sur Google&nbsp;Maps.
-        </p>
+<div class="container">
+    <h1>📍 Suivi de position & événements</h1>
+    <p class="subtitle">
+        Envoie la position de ton téléphone au serveur, puis affiche les événements OpenAgenda
+        dans un rayon de 30 km pour les deux jours à venir, sur Google&nbsp;Maps.
+    </p>
 
-        <div id="status" class="status waiting">
-            ⏳ En attente de démarrer le suivi...
-        </div>
-
-        <div class="button-group">
-            <button id="startBtn" class="btn-primary" onclick="startTracking()">Start Tracking</button>
-            <button id="stopBtn" class="btn-danger" onclick="stopTracking()" disabled>Stop Tracking</button>
-        </div>
-
-        <div class="button-group">
-            <button class="btn-secondary" onclick="sendOnce()">Send Once</button>
-            <!-- Ce bouton ne parle plus d'API mais du dernier point -->
-            <button class="btn-secondary" onclick="fetchLatestLocation()">Dernier point</button>
-        </div>
-
-        <!-- Position actuelle du téléphone -->
-        <div id="locationInfo" class="location-info" style="display: none;">
-            <h3>Position actuelle</h3>
-            <div class="info-row">
-                <span class="info-label">Latitude :</span>
-                <span class="info-value" id="latitude">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Longitude :</span>
-                <span class="info-value" id="longitude">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Précision :</span>
-                <span class="info-value" id="accuracy">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Dernière mise à jour :</span>
-                <span class="info-value" id="timestamp">-</span>
-            </div>
-            <a id="mapLink" class="map-link" href="#" target="_blank">📍 Ouvrir cette position dans Google Maps</a>
-        </div>
-
-        <!-- Dernier point enregistré côté serveur -->
-        <div id="latestLocationInfo" class="location-info" style="display: none;">
-            <h3>Dernier point enregistré</h3>
-            <div class="info-row">
-                <span class="info-label">Latitude :</span>
-                <span class="info-value" id="latestLatitude">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Longitude :</span>
-                <span class="info-value" id="latestLongitude">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Précision :</span>
-                <span class="info-value" id="latestAccuracy">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Enregistré le :</span>
-                <span class="info-value" id="latestTimestamp">-</span>
-            </div>
-            <a id="latestMapLink" class="map-link" href="#" target="_blank">📍 Voir le dernier point sur Google Maps</a>
-
-            <div class="latest-map">
-                <iframe
-                    id="latestMapFrame"
-                    loading="lazy"
-                    allowfullscreen
-                    referrerpolicy="no-referrer-when-downgrade">
-                </iframe>
-            </div>
-        </div>
+    <div id="status" class="status waiting">
+        ⏳ En attente de démarrer le suivi…
     </div>
 
-    <script>
-        let watchId = null;
-        let isTracking = false;
-        const SERVER_URL = window.location.origin;
+    <div class="button-group">
+        <button id="startBtn" class="btn-primary" onclick="startTracking()">Démarrer le suivi</button>
+        <button id="stopBtn" class="btn-danger" onclick="stopTracking()" disabled>Arrêter le suivi</button>
+    </div>
 
-        // On garde une fonction log, mais elle n'affiche plus de console "API" sur la page
-        function log(message, type = 'info') {
-            console.log(`[${type}] ${message}`);
-        }
+    <div class="button-group">
+        <button class="btn-secondary" onclick="sendOnce()">Envoyer une seule fois</button>
+        <button class="btn-secondary" onclick="fetchLatestLocation()">Dernier point</button>
+        <button class="btn-secondary" onclick="fetchNearbyEvents()">Événements à proximité</button>
+    </div>
 
-        function updateStatus(message, type) {
-            const statusDiv = document.getElementById('status');
-            statusDiv.textContent = message;
-            statusDiv.className = `status ${type}`;
-        }
+    <!-- Position actuelle -->
+    <div class="section" id="currentLocationSection" style="display:none;">
+        <h2>Position actuelle (téléphone)</h2>
+        <div class="info-grid">
+            <div class="info-label">Latitude</div>
+            <div class="info-value" id="currentLatitude">-</div>
+            <div class="info-label">Longitude</div>
+            <div class="info-value" id="currentLongitude">-</div>
+            <div class="info-label">Précision</div>
+            <div class="info-value" id="currentAccuracy">-</div>
+            <div class="info-label">Dernière mise à jour</div>
+            <div class="info-value" id="currentTimestamp">-</div>
+        </div>
+        <a id="currentMapLink" class="map-link" href="#" target="_blank" rel="noopener noreferrer">
+            📍 Ouvrir cette position dans Google Maps
+        </a>
+    </div>
 
-        function updateLocationDisplay(position) {
-            const lat = position.coords.latitude;
-            const lon = position.coords.longitude;
-            const acc = Math.round(position.coords.accuracy);
+    <!-- Dernier point enregistré -->
+    <div class="section" id="latestLocationSection" style="display:none;">
+        <h2>Dernier point enregistré</h2>
+        <div class="info-grid">
+            <div class="info-label">Latitude</div>
+            <div class="info-value" id="latestLatitude">-</div>
+            <div class="info-label">Longitude</div>
+            <div class="info-value" id="latestLongitude">-</div>
+            <div class="info-label">Précision</div>
+            <div class="info-value" id="latestAccuracy">-</div>
+            <div class="info-label">Enregistré le</div>
+            <div class="info-value" id="latestTimestamp">-</div>
+        </div>
+        <a id="latestMapLink" class="map-link" href="#" target="_blank" rel="noopener noreferrer">
+            📍 Voir ce point dans Google Maps
+        </a>
+        <div class="map-container">
+            <iframe id="latestMapFrame" loading="lazy" allowfullscreen
+                    referrerpolicy="no-referrer-when-downgrade"></iframe>
+        </div>
+        <p class="hint">
+            Les événements seront recherchés dans un rayon de 30 km autour de ce point.
+        </p>
+    </div>
 
-            document.getElementById('latitude').textContent = lat.toFixed(6);
-            document.getElementById('longitude').textContent = lon.toFixed(6);
-            document.getElementById('accuracy').textContent = `${acc} meters`;
-            document.getElementById('timestamp').textContent = new Date().toLocaleString();
-            document.getElementById('mapLink').href = `https://www.google.com/maps?q=${lat},${lon}`;
-            document.getElementById('locationInfo').style.display = 'block';
-        }
+    <!-- Événements à proximité -->
+    <div class="section" id="eventsSection" style="display:none;">
+        <h2>Événements à proximité (30 km, 2 jours)</h2>
+        <p id="eventsEmpty" style="display:none; font-size:13px; color:#6b7280; margin-bottom:8px;">
+            Aucun événement trouvé dans ce périmètre pour les deux jours à venir.
+        </p>
+        <ul id="eventsList" class="events-list"></ul>
+        <p class="hint">
+            Chaque événement a son plan intégré ci-dessous via Google&nbsp;Maps (iframe)
+            et un lien direct vers Google&nbsp;Maps.
+        </p>
+    </div>
+</div>
 
-        async function sendLocation(position) {
-            try {
-                const data = {
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
-                    accuracy: position.coords.accuracy
-                };
+<script>
+    let watchId = null;
+    let isTracking = false;
+    const SERVER_URL = window.location.origin;
 
-                const response = await fetch(`${SERVER_URL}/api/location`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(data)
-                });
+    function updateStatus(message, type) {
+        const div = document.getElementById('status');
+        div.textContent = message;
+        div.className = 'status ' + type;
+    }
 
-                const result = await response.json();
+    function updateCurrentLocationDisplay(position) {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        const acc = position.coords.accuracy;
 
-                if (response.ok) {
-                    log(`Location sent successfully (±${Math.round(data.accuracy)}m)`, 'success');
-                    updateLocationDisplay(position);
-                    updateStatus('🟢 Suivi actif - position envoyée', 'active');
-                    // On met à jour aussi le dernier point enregistré
-                    fetchLatestLocation();
-                } else {
-                    log(`Error: ${result.error}`, 'error');
-                    updateStatus('🔴 Erreur lors de l\'envoi de la position', 'error');
-                }
-            } catch (error) {
-                log(`Network error: ${error.message}`, 'error');
-                updateStatus('🔴 Erreur réseau - vérifier la connexion au serveur', 'error');
+        document.getElementById('currentLatitude').textContent = lat.toFixed(6);
+        document.getElementById('currentLongitude').textContent = lon.toFixed(6);
+        document.getElementById('currentAccuracy').textContent =
+            acc != null ? Math.round(acc) + ' m' : '-';
+        document.getElementById('currentTimestamp').textContent =
+            new Date().toLocaleString();
+
+        const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
+        document.getElementById('currentMapLink').href = mapsUrl;
+
+        document.getElementById('currentLocationSection').style.display = 'block';
+    }
+
+    async function sendLocation(position) {
+        updateCurrentLocationDisplay(position);
+
+        const data = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy
+        };
+
+        try {
+            const res = await fetch(`${SERVER_URL}/api/location`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+
+            const result = await res.json();
+            if (res.ok && result.status === 'success') {
+                updateStatus('🟢 Position envoyée au serveur', 'active');
+                // On met à jour le dernier point affiché
+                fetchLatestLocation(false);
+            } else {
+                updateStatus('🔴 Erreur lors de l\'envoi de la position', 'error');
+                console.error(result);
             }
+        } catch (e) {
+            updateStatus('🔴 Erreur réseau lors de l\'envoi de la position', 'error');
+            console.error(e);
         }
+    }
 
-        function startTracking() {
-            if (!navigator.geolocation) {
-                updateStatus('🔴 Géolocalisation non supportée', 'error');
-                log('Geolocation is not supported by this browser', 'error');
+    function startTracking() {
+        if (!navigator.geolocation) {
+            updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
+            return;
+        }
+        if (isTracking) return;
+
+        isTracking = true;
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('stopBtn').disabled = false;
+        updateStatus('🟡 Démarrage du suivi de position…', 'active');
+
+        watchId = navigator.geolocation.watchPosition(
+            sendLocation,
+            (error) => {
+                console.error(error);
+                updateStatus('🔴 Erreur de géolocalisation : ' + error.message, 'error');
+            },
+            {
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: 10000
+            }
+        );
+    }
+
+    function stopTracking() {
+        if (watchId != null) {
+            navigator.geolocation.clearWatch(watchId);
+            watchId = null;
+        }
+        isTracking = false;
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+        updateStatus('⏸️ Suivi arrêté', 'waiting');
+    }
+
+    function sendOnce() {
+        if (!navigator.geolocation) {
+            updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
+            return;
+        }
+        updateStatus('🟡 Récupération de la position…', 'active');
+
+        navigator.geolocation.getCurrentPosition(
+            sendLocation,
+            (error) => {
+                console.error(error);
+                updateStatus('🔴 Erreur de géolocalisation : ' + error.message, 'error');
+            },
+            {
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: 10000
+            }
+        );
+    }
+
+    async function fetchLatestLocation(updateEvents = true) {
+        try {
+            const res = await fetch(`${SERVER_URL}/api/location/latest`);
+            const result = await res.json();
+
+            if (!res.ok || result.status !== 'success') {
+                updateStatus('🟡 Aucun point enregistré pour le moment', 'waiting');
+                document.getElementById('latestLocationSection').style.display = 'none';
                 return;
             }
 
-            if (isTracking) return;
+            const loc = result.location;
+            const lat = loc.latitude;
+            const lon = loc.longitude;
+            const acc = loc.accuracy;
+            const ts = loc.timestamp;
 
-            isTracking = true;
-            document.getElementById('startBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = false;
-            updateStatus('🟡 Démarrage du suivi de position...', 'active');
-            log('Starting continuous location tracking...', 'info');
+            document.getElementById('latestLatitude').textContent = lat.toFixed(6);
+            document.getElementById('latestLongitude').textContent = lon.toFixed(6);
+            document.getElementById('latestAccuracy').textContent =
+                acc != null ? Math.round(acc) + ' m' : '-';
+            document.getElementById('latestTimestamp').textContent =
+                ts ? new Date(ts).toLocaleString() : '-';
 
-            watchId = navigator.geolocation.watchPosition(
-                sendLocation,
-                (error) => {
-                    log(`Location error: ${error.message}`, 'error');
-                    updateStatus('🔴 Accès à la localisation refusé ou indisponible', 'error');
-                },
-                {
-                    enableHighAccuracy: true,
-                    maximumAge: 0,
-                    timeout: 10000
-                }
-            );
-        }
+            const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
+            document.getElementById('latestMapLink').href = mapsUrl;
+            document.getElementById('latestMapFrame').src =
+                `https://www.google.com/maps?q=${lat},${lon}&z=13&output=embed`;
 
-        function stopTracking() {
-            if (watchId !== null) {
-                navigator.geolocation.clearWatch(watchId);
-                watchId = null;
+            document.getElementById('latestLocationSection').style.display = 'block';
+            updateStatus('🟢 Dernier point chargé', 'active');
+
+            if (updateEvents) {
+                // Optionnel : déclenche la recherche des événements automatiquement
+                // fetchNearbyEvents();
             }
-
-            isTracking = false;
-            document.getElementById('startBtn').disabled = false;
-            document.getElementById('stopBtn').disabled = true;
-            updateStatus('⏸️ Suivi arrêté', 'waiting');
-            log('Tracking stopped', 'info');
+        } catch (e) {
+            console.error(e);
+            updateStatus('🔴 Erreur lors de la récupération du dernier point', 'error');
         }
+    }
 
-        function sendOnce() {
-            if (!navigator.geolocation) {
-                updateStatus('🔴 Géolocalisation non supportée', 'error');
+    async function fetchNearbyEvents() {
+        try {
+            updateStatus('🟡 Chargement des événements à proximité…', 'active');
+
+            const res = await fetch(`${SERVER_URL}/api/events/nearby`);
+            const result = await res.json();
+
+            const section = document.getElementById('eventsSection');
+            const list = document.getElementById('eventsList');
+            const empty = document.getElementById('eventsEmpty');
+
+            list.innerHTML = '';
+            empty.style.display = 'none';
+
+            if (!res.ok || result.status !== 'success') {
+                section.style.display = 'block';
+                empty.textContent = result.message || 'Erreur lors de la récupération des événements.';
+                empty.style.display = 'block';
+                updateStatus('🔴 Impossible de récupérer les événements', 'error');
                 return;
             }
 
-            updateStatus('🟡 Récupération de la position...', 'active');
-            log('Getting current location...', 'info');
-
-            navigator.geolocation.getCurrentPosition(
-                sendLocation,
-                (error) => {
-                    log(`Location error: ${error.message}`, 'error');
-                    updateStatus('🔴 Impossible de récupérer la position', 'error');
-                },
-                {
-                    enableHighAccuracy: true,
-                    maximumAge: 0,
-                    timeout: 10000
-                }
-            );
-        }
-
-        // NOUVELLE FONCTION : récupère le dernier point et l'affiche sur Google Maps
-        async function fetchLatestLocation() {
-            try {
-                const response = await fetch(`${SERVER_URL}/api/location/latest`);
-                const result = await response.json();
-
-                if (response.ok && result.status === 'success' && result.location) {
-                    const latest = result.location;
-                    const lat = latest.latitude;
-                    const lon = latest.longitude;
-                    const acc = latest.accuracy;
-                    const ts = latest.timestamp;
-
-                    document.getElementById('latestLatitude').textContent = lat.toFixed(6);
-                    document.getElementById('latestLongitude').textContent = lon.toFixed(6);
-                    document.getElementById('latestAccuracy').textContent =
-                        acc !== undefined && acc !== null ? `${Math.round(acc)} meters` : '-';
-                    document.getElementById('latestTimestamp').textContent =
-                        ts ? new Date(ts).toLocaleString() : '-';
-
-                    const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
-                    document.getElementById('latestMapLink').href = mapsUrl;
-                    document.getElementById('latestMapFrame').src =
-                        `https://www.google.com/maps?q=${lat},${lon}&z=15&output=embed`;
-
-                    document.getElementById('latestLocationInfo').style.display = 'block';
-                    updateStatus('🟢 Dernier point chargé', 'active');
-                    log('Latest location loaded', 'info');
-                } else {
-                    updateStatus('🟡 Aucun point enregistré pour le moment', 'waiting');
-                    document.getElementById('latestLocationInfo').style.display = 'none';
-                    log('No locations stored yet', 'info');
-                }
-            } catch (error) {
-                log(`Error fetching latest location: ${error.message}`, 'error');
+            const events = result.events || [];
+            if (events.length === 0) {
+                section.style.display = 'block';
+                empty.style.display = 'block';
+                updateStatus('🟡 Aucun événement trouvé dans les 30 km pour les 2 jours à venir', 'waiting');
+                return;
             }
-        }
 
-        // Au chargement de la page, on tente déjà d'afficher le dernier point
-        window.addEventListener('load', () => {
-            log('Location Tracker initialized', 'info');
-            log(`Server: ${SERVER_URL}`, 'info');
-            fetchLatestLocation();
-        });
-    </script>
+            // Affiche les événements, avec Google Maps intégré pour les 10 premiers
+            events.forEach((ev, index) => {
+                const li = document.createElement('li');
+                li.className = 'event-item';
+
+                const title = document.createElement('div');
+                title.className = 'event-title';
+                title.textContent = ev.title || 'Événement sans titre';
+
+                const meta = document.createElement('div');
+                meta.className = 'event-meta';
+
+                const begin = ev.begin ? new Date(ev.begin).toLocaleString() : 'Date non précisée';
+
+                const whereParts = [];
+                if (ev.locationName) whereParts.push(ev.locationName);
+                if (ev.address) whereParts.push(ev.address);
+                if (ev.city) whereParts.push(ev.city);
+
+                meta.textContent = `${begin} — ${whereParts.join(' · ') || 'Lieu non précisé'}`;
+
+                li.appendChild(title);
+                li.appendChild(meta);
+
+                const links = document.createElement('div');
+                links.className = 'event-links';
+
+                if (ev.openagendaUrl) {
+                    const oaLink = document.createElement('a');
+                    oaLink.className = 'event-link';
+                    oaLink.href = ev.openagendaUrl;
+                    oaLink.target = '_blank';
+                    oaLink.rel = 'noopener noreferrer';
+                    oaLink.textContent = 'Voir sur OpenAgenda';
+                    links.appendChild(oaLink);
+                }
+
+                if (ev.latitude != null && ev.longitude != null) {
+                    const gmapsLink = document.createElement('a');
+                    gmapsLink.className = 'event-link';
+                    gmapsLink.href = `https://www.google.com/maps?q=${ev.latitude},${ev.longitude}`;
+                    gmapsLink.target = '_blank';
+                    gmapsLink.rel = 'noopener noreferrer';
+                    gmapsLink.textContent = 'Voir dans Google Maps';
+                    links.appendChild(gmapsLink);
+                }
+
+                if (links.children.length > 0) {
+                    li.appendChild(links);
+                }
+
+                // Intègre une petite carte Google Maps (iframe) pour les premiers événements
+                if (ev.latitude != null && ev.longitude != null && index < 10) {
+                    const mapDiv = document.createElement('div');
+                    mapDiv.className = 'event-map';
+
+                    const iframe = document.createElement('iframe');
+                    iframe.loading = 'lazy';
+                    iframe.allowFullscreen = true;
+                    iframe.referrerPolicy = 'no-referrer-when-downgrade';
+                    iframe.src = `https://www.google.com/maps?q=${ev.latitude},${ev.longitude}&z=14&output=embed`;
+
+                    mapDiv.appendChild(iframe);
+                    li.appendChild(mapDiv);
+                }
+
+                list.appendChild(li);
+            });
+
+            section.style.display = 'block';
+            updateStatus('🟢 Événements à proximité chargés', 'active');
+        } catch (e) {
+            console.error(e);
+            updateStatus('🔴 Erreur lors du chargement des événements à proximité', 'error');
+        }
+    }
+
+    // Au chargement de la page, on essaye déjà de récupérer le dernier point
+    window.addEventListener('load', () => {
+        fetchLatestLocation(false);
+    });
+</script>
 </body>
 </html>
