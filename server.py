@@ -15,15 +15,15 @@ CORS(app)
 
 DATA_FILE = 'locations.json'
 
-# === OpenAgenda (même logique que find_toulouse_events.py) ===
+# === OpenAgenda ===
 API_KEY = os.environ.get("OPENAGENDA_API_KEY", "218909f158934e1badf3851a650ad6c1")
 BASE_URL = os.environ.get("OPENAGENDA_BASE_URL", "https://api.openagenda.com/v2")
 
-# Ville utilisée pour chercher les agendas (comme ton script Toulouse)
-DEFAULT_CITY = os.environ.get("OPENAGENDA_CITY", "Toulouse")
-
-# Rayon (km)
+# Rayon (km) autour du téléphone
 RADIUS_KM = 100
+
+# Cache simple en mémoire pour les géocodages Nominatim
+GEOCODE_CACHE = {}
 
 
 # -------------------------------------------------
@@ -31,6 +31,7 @@ RADIUS_KM = 100
 # -------------------------------------------------
 
 def load_locations():
+    """Charge la liste des positions depuis un fichier JSON local."""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
@@ -43,11 +44,13 @@ def load_locations():
 
 
 def save_locations(locations):
+    """Sauvegarde la liste des positions dans un fichier JSON local."""
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(locations, f, ensure_ascii=False, indent=2)
 
 
 def add_location(latitude, longitude, accuracy=None):
+    """Ajoute une position (téléphone) dans l'historique."""
     locations = load_locations()
     entry = {
         "latitude": float(latitude),
@@ -61,6 +64,7 @@ def add_location(latitude, longitude, accuracy=None):
 
 
 def get_latest_location():
+    """Retourne la dernière position enregistrée (ou None)."""
     locations = load_locations()
     if not locations:
         return None
@@ -72,7 +76,7 @@ def get_latest_location():
 # -------------------------------------------------
 
 def get_headers():
-    """Entêtes OpenAgenda, comme dans ton script."""
+    """Entêtes HTTP pour l'API OpenAgenda."""
     return {
         "key": API_KEY,
         "Content-Type": "application/json"
@@ -80,7 +84,10 @@ def get_headers():
 
 
 def search_agendas(search_term=None, official=None, limit=10):
-    """Recherche d'agendas (identique au script mais toujours un dict en retour)."""
+    """
+    Recherche d'agendas.
+    - Si search_term est None : agendas associés à la clé API (sans filtre de ville).
+    """
     url = f"{BASE_URL}/agendas"
     params = {"size": min(limit, 100)}
 
@@ -98,18 +105,18 @@ def search_agendas(search_term=None, official=None, limit=10):
         return {"agendas": []}
 
 
-def get_events_from_agenda(agenda_uid, limit=50, city=None):
-    """Récupère les événements d'un agenda, avec city[] et current+upcoming (comme ton script)."""
+def get_events_from_agenda(agenda_uid, limit=50):
+    """
+    Récupère les événements d'un agenda (current + upcoming),
+    sans filtre de ville.
+    """
     url = f"{BASE_URL}/agendas/{agenda_uid}/events"
 
     params = {
         "size": min(limit, 300),
         "detailed": 1,
-        # comme ton script : on prend tout ce qui est en cours ou à venir
         "relative[]": ["current", "upcoming"],
     }
-    if city:
-        params["city[]"] = city
 
     try:
         r = requests.get(url, headers=get_headers(), params=params, timeout=10)
@@ -147,11 +154,64 @@ def haversine_km(lat1, lon1, lat2, lon2):
 
 
 # -------------------------------------------------
+# Géocodage Nominatim / OpenStreetMap
+# -------------------------------------------------
+
+def geocode_address_nominatim(address_str):
+    """
+    Géocode une adresse texte avec Nominatim (OpenStreetMap).
+
+    ⚠️ IMPORTANT :
+    - respecter les conditions d'utilisation de Nominatim
+    - toujours envoyer un User-Agent avec un contact (site ou email)
+    """
+    if not address_str:
+        return None, None
+
+    # Cache en mémoire pour ne pas re-géocoder la même adresse
+    if address_str in GEOCODE_CACHE:
+        return GEOCODE_CACHE[address_str]
+
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {
+        "q": address_str,
+        "format": "json",
+        "limit": 1
+    }
+    headers = {
+        "User-Agent": "gedeon-demo/1.0 (eric@ericmahe.com)"
+    }
+
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        if not data:
+            GEOCODE_CACHE[address_str] = (None, None)
+            return None, None
+
+        lat = float(data[0]["lat"])
+        lon = float(data[0]["lon"])
+        GEOCODE_CACHE[address_str] = (lat, lon)
+        print(f"🌍 Nominatim geocode OK: '{address_str}' -> ({lat}, {lon})")
+        return lat, lon
+    except requests.RequestException as e:
+        print(f"❌ Nominatim error for '{address_str}': {e}")
+        GEOCODE_CACHE[address_str] = (None, None)
+        return None, None
+    except (KeyError, ValueError) as e:
+        print(f"❌ Nominatim parse error for '{address_str}': {e}")
+        GEOCODE_CACHE[address_str] = (None, None)
+        return None, None
+
+
+# -------------------------------------------------
 # Routes front
 # -------------------------------------------------
 
 @app.route('/')
 def index():
+    """Renvoie la page HTML principale."""
     return send_from_directory('.', 'index.html')
 
 
@@ -218,20 +278,25 @@ def location_latest():
 
 
 # -------------------------------------------------
-# API : événements à proximité (multi-agendas, rayon 100 km)
+# API : événements à proximité (rayon 100 km autour du téléphone)
 # -------------------------------------------------
 
 @app.route('/api/events/nearby', methods=['GET'])
 def events_nearby():
     """
-    Cherche des événements dans un rayon de 100 km autour du dernier point,
-    en utilisant :
-      - GET /v2/agendas
-      - GET /v2/agendas/{uid}/events (relative: current+upcoming)
-    puis filtrage par distance côté serveur.
+    Cherche des événements dans un rayon de 100 km autour du dernier point
+    de localisation du téléphone.
+
+    - Récupère les agendas accessibles via l'API (sans filtre de ville)
+    - Récupère leurs événements (current + upcoming)
+    - Pour chaque événement :
+        * utilise location.latitude/longitude si présents
+        * sinon géocode l'adresse avec Nominatim
+        * calcule la distance au téléphone
+        * garde seulement ceux à <= 100 km
     """
     try:
-        # 1. Dernier point de localisation
+        # 1. Dernier point de localisation (téléphone)
         latest = get_latest_location()
         if latest is None:
             return jsonify({
@@ -256,8 +321,8 @@ def events_nearby():
                 "message": "Coordonnées invalides."
             }), 500
 
-        # 2. Recherche d'agendas comme ton script (ville "Toulouse" par défaut)
-        agendas_result = search_agendas(search_term=DEFAULT_CITY, limit=30)
+        # 2. Recherche d'agendas (sans filtre de ville)
+        agendas_result = search_agendas(limit=30)
         agendas = agendas_result.get('agendas', []) if agendas_result else []
 
         if not agendas:
@@ -266,9 +331,8 @@ def events_nearby():
                 "center": {"latitude": center_lat, "longitude": center_lon},
                 "radiusKm": RADIUS_KM,
                 "events": [],
-                "city": DEFAULT_CITY,
                 "count": 0,
-                "info": "Aucun agenda trouvé pour cette recherche."
+                "info": "Aucun agenda trouvé pour cette clé API."
             }), 200
 
         # 3. Récupération des événements agenda par agenda + filtrage par distance
@@ -282,7 +346,7 @@ def events_nearby():
             else:
                 agenda_title = title or 'Agenda'
 
-            events_data = get_events_from_agenda(uid, limit=200, city=DEFAULT_CITY)
+            events_data = get_events_from_agenda(uid, limit=200)
             events = events_data.get('events', []) if events_data else []
             if not events:
                 continue
@@ -294,7 +358,6 @@ def events_nearby():
 
                 first_timing = timings[0]
                 begin_str = first_timing.get('begin')
-                # On parse pour l'affichage éventuel, mais on ne filtre plus par date
                 begin_dt = parse_iso_datetime(begin_str)
                 if not begin_dt:
                     continue
@@ -303,8 +366,26 @@ def events_nearby():
                 ev_lat = loc.get('latitude')
                 ev_lon = loc.get('longitude')
 
+                # Si OpenAgenda ne fournit pas de lat/lon, on tente Nominatim
                 if ev_lat is None or ev_lon is None:
-                    continue
+                    parts = []
+                    if loc.get("name"):
+                        parts.append(str(loc["name"]))
+                    if loc.get("address"):
+                        parts.append(str(loc["address"]))
+                    if loc.get("city"):
+                        parts.append(str(loc["city"]))
+                    # on ajoute le pays pour aider Nominatim
+                    parts.append("France")
+                    address_str = ", ".join(parts)
+
+                    geocoded_lat, geocoded_lon = geocode_address_nominatim(address_str)
+                    if geocoded_lat is not None and geocoded_lon is not None:
+                        ev_lat = geocoded_lat
+                        ev_lon = geocoded_lon
+                    else:
+                        # Impossible de géocoder => on ignore cet événement pour la carte
+                        continue
 
                 try:
                     ev_lat = float(ev_lat)
@@ -340,7 +421,7 @@ def events_nearby():
                     "agendaTitle": agenda_title,
                 })
 
-        # 4. Tri par date de début (texte ISO)
+        # Tri par date de début (texte ISO)
         all_events.sort(key=lambda e: e["begin"] or "")
 
         return jsonify({
@@ -348,7 +429,6 @@ def events_nearby():
             "center": {"latitude": center_lat, "longitude": center_lon},
             "radiusKm": RADIUS_KM,
             "events": all_events,
-            "city": DEFAULT_CITY,
             "count": len(all_events),
         }), 200
 
@@ -369,6 +449,5 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     print(f"Starting server on port {port}")
     print(f"OpenAgenda BASE_URL={BASE_URL}")
-    print(f"OpenAgenda city={DEFAULT_CITY}")
     print(f"Radius = {RADIUS_KM} km")
     app.run(host='0.0.0.0', port=port)
