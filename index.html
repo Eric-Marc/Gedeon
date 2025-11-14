@@ -204,6 +204,22 @@
             margin-top: 4px;
         }
 
+        .slider-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 8px;
+        }
+
+        .slider-row label {
+            font-size: 13px;
+            color: #374151;
+        }
+
+        .slider-row input[type=range] {
+            width: 100%;
+        }
+
         @media (max-width: 640px) {
             .info-grid { grid-template-columns: 1fr; }
             .info-value { text-align: left; }
@@ -215,8 +231,7 @@
     <h1>📍 Localisation & événements à proximité</h1>
     <p class="subtitle">
         Le site enregistre la position de ton téléphone, puis affiche les événements OpenAgenda
-        dans un rayon d’environ <strong>100&nbsp;km</strong> autour de ce point, pour les deux jours à venir,
-        avec leur position sur Google&nbsp;Maps.
+        autour de ce point, dans un rayon et une fenêtre de temps que tu peux régler.
     </p>
 
     <div id="status" class="status waiting">
@@ -279,13 +294,28 @@
                     referrerpolicy="no-referrer-when-downgrade"></iframe>
         </div>
         <p class="hint">
-            Les événements ci-dessous sont recherchés dans un rayon de <strong>100&nbsp;km</strong> autour de ce point.
+            Les événements ci-dessous sont recherchés autour de ce point.
         </p>
     </div>
 
     <!-- Événements à proximité -->
     <div class="section" id="eventsSection" style="display:none;">
-        <h2>Événements à proximité (100 km, 2 jours)</h2>
+        <h2>Événements à proximité</h2>
+
+        <!-- Curseurs de réglage -->
+        <div class="slider-row">
+            <label>
+                Rayon : <strong><span id="radiusValue">100</span> km</strong>
+            </label>
+            <input type="range" id="radiusRange" min="5" max="200" step="5" value="100">
+        </div>
+
+        <div class="slider-row">
+            <label>
+                Fenêtre de temps : <strong>aujourd'hui + <span id="daysValue">2</span> jour(s)</strong>
+            </label>
+            <input type="range" id="daysRange" min="1" max="30" step="1" value="2">
+        </div>
 
         <!-- résumé : nombre d'événements trouvés -->
         <p id="eventsSummary"
@@ -293,15 +323,15 @@
         </p>
 
         <p id="eventsEmpty" style="display:none; font-size:13px; color:#6b7280; margin-bottom:8px;">
-            Aucun événement trouvé dans ce périmètre pour les deux jours à venir.
+            Aucun événement trouvé dans ce périmètre pour la période choisie.
         </p>
 
         <!-- liste des événements trouvés -->
         <ul id="eventsList" class="events-list"></ul>
 
         <p class="hint">
-            Chaque événement affiché possède un lien vers Google&nbsp;Maps, et une petite carte intégrée
-            (iframe) quand les coordonnées sont disponibles.
+            Chaque événement affiché possède un lien vers OpenAgenda et Google&nbsp;Maps,
+            et une petite carte intégrée quand les coordonnées sont disponibles.
         </p>
     </div>
 </div>
@@ -310,6 +340,10 @@
     let watchId = null;
     let isTracking = false;
     const SERVER_URL = window.location.origin;
+
+    // valeurs courantes des curseurs
+    let currentRadiusKm = 100;
+    let currentDays = 2;
 
     function updateStatus(message, type) {
         const div = document.getElementById('status');
@@ -456,8 +490,7 @@
             updateStatus('🟢 Dernier point chargé', 'active');
 
             if (updateEvents) {
-                // tu peux auto-lancer fetchNearbyEvents() ici si tu veux
-                // fetchNearbyEvents();
+                // on pourrait auto-lancer un fetch ici, mais on laisse au bouton/curseurs
             }
         } catch (e) {
             console.error(e);
@@ -469,7 +502,11 @@
         try {
             updateStatus('🟡 Chargement des événements à proximité…', 'active');
 
-            const res = await fetch(`${SERVER_URL}/api/events/nearby`);
+            const params = new URLSearchParams();
+            if (currentRadiusKm) params.append('radiusKm', currentRadiusKm);
+            if (currentDays) params.append('days', currentDays);
+
+            const res = await fetch(`${SERVER_URL}/api/events/nearby?` + params.toString());
             const result = await res.json();
 
             const section = document.getElementById('eventsSection');
@@ -490,17 +527,23 @@
             }
 
             const events = result.events || [];
-            const radiusKm = result.radiusKm ?? 100;
+            const radiusKm = result.radiusKm ?? currentRadiusKm;
+            const days = result.days ?? currentDays;
             const count = result.count ?? events.length;
 
             if (events.length === 0) {
                 section.style.display = 'block';
                 empty.style.display = 'block';
-                updateStatus(`🟡 Aucun événement trouvé dans les ${radiusKm} km pour les 2 jours à venir`, 'waiting');
+                updateStatus(
+                    `🟡 Aucun événement trouvé dans les ${radiusKm} km pour les ${days} jour(s) à venir`,
+                    'waiting'
+                );
                 return;
             }
 
-            summary.textContent = `${count} événement(s) trouvé(s) dans un rayon de ${radiusKm} km.`;
+            summary.textContent =
+                `${count} événement(s) trouvé(s) dans un rayon de ${radiusKm} km ` +
+                `pour les ${days} jour(s) à venir.`;
             summary.style.display = 'block';
 
             events.forEach((ev, index) => {
@@ -581,7 +624,27 @@
         }
     }
 
+    function setupSliders() {
+        const radiusRange = document.getElementById('radiusRange');
+        const daysRange = document.getElementById('daysRange');
+        const radiusValue = document.getElementById('radiusValue');
+        const daysValue = document.getElementById('daysValue');
+
+        radiusRange.addEventListener('input', () => {
+            currentRadiusKm = parseInt(radiusRange.value, 10);
+            radiusValue.textContent = currentRadiusKm;
+            fetchNearbyEvents();
+        });
+
+        daysRange.addEventListener('input', () => {
+            currentDays = parseInt(daysRange.value, 10);
+            daysValue.textContent = currentDays;
+            fetchNearbyEvents();
+        });
+    }
+
     window.addEventListener('load', () => {
+        setupSliders();
         fetchLatestLocation(false);
     });
 </script>
