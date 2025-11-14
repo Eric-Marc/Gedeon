@@ -131,8 +131,10 @@ def receive_location():
         locations.append(entry)
         save_locations(locations)
 
-        print(f"[LOC] client_id={client_id} ip={ip} "
-              f"Lat={latitude} Lon={longitude} Acc={accuracy}m")
+        print(
+            f"[LOC] client_id={client_id} ip={ip} "
+            f"Lat={latitude} Lon={longitude} Acc={accuracy}m"
+        )
 
         return jsonify({
             "status": "success",
@@ -186,14 +188,32 @@ def get_latest_location():
 @app.route("/api/locations/clear", methods=["DELETE"])
 def clear_locations():
     """
-    Efface toutes les positions enregistrées.
+    Efface uniquement les positions du client_id fourni dans la requête.
+    Ne supprime pas les positions des autres utilisateurs.
     """
     try:
-        save_locations([])
+        data = request.json or {}
+        client_id = data.get("client_id")
+
+        if not client_id:
+            return jsonify({"error": "client_id is required"}), 400
+
+        locations = load_locations()
+        before = len(locations)
+        locations = [loc for loc in locations if loc.get("client_id") != client_id]
+        after = len(locations)
+        removed = before - after
+
+        save_locations(locations)
+
+        print(f"[CLEAR] client_id={client_id} removed={removed}")
+
         return jsonify({
             "status": "success",
-            "message": "All locations cleared"
+            "message": f"{removed} locations removed for client_id={client_id}",
+            "removed": removed
         }), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
