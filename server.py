@@ -1,251 +1,308 @@
-import os
-import json
-from datetime import datetime
-from collections import Counter
-
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+from datetime import datetime, timedelta
+import json
+import os
+import math
+import requests
 
-# -----------------------------------------------------------------------------
-# Configuration de base
-# -----------------------------------------------------------------------------
+# ------------------------------
+# Configuration de l'application
+# ------------------------------
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(BASE_DIR, "locations.json")
-PING_FILE = os.path.join(BASE_DIR, "pings.json")
+# Fichier local pour stocker l'historique des positions
+DATA_FILE = 'locations.json'
 
+# Configuration OpenAgenda
+# Tu peux laisser ces valeurs en dur ou les surcharger via des variables d'environnement
+API_KEY = os.environ.get("OPENAGENDA_API_KEY", "218909f158934e1badf3851a650ad6c1")
+BASE_URL = os.environ.get("OPENAGENDA_BASE_URL", "https://api.openagenda.com/v2")
 
-# -----------------------------------------------------------------------------
-# Fonctions utilitaires pour lire / écrire les fichiers JSON
-# -----------------------------------------------------------------------------
+# Rayon de recherche des événements (en km)
+RADIUS_KM = 30
 
-def load_json(path, default):
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            # fichier corrompu → on repart de zéro
-            return default
-    return default
-
-
-def save_json(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+# ------------------------------
+# Fonctions utilitaires
+# ------------------------------
 
 
 def load_locations():
-    return load_json(DATA_FILE, [])
+    """Charge la liste des positions depuis le fichier JSON."""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+    return []
 
 
 def save_locations(locations):
-    save_json(DATA_FILE, locations)
+    """Sauvegarde la liste des positions dans le fichier JSON."""
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(locations, f, ensure_ascii=False, indent=2)
 
 
-def load_pings():
-    return load_json(PING_FILE, [])
+def add_location(latitude, longitude, accuracy=None):
+    """Ajoute une position à l'historique."""
+    locations = load_locations()
+    entry = {
+        "latitude": float(latitude),
+        "longitude": float(longitude),
+        "accuracy": float(accuracy) if accuracy is not None else None,
+        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+    }
+    locations.append(entry)
+    save_locations(locations)
+    return entry
 
 
-def save_pings(pings):
-    save_json(PING_FILE, pings)
+def get_latest_location():
+    """Retourne la dernière position enregistrée, ou None."""
+    locations = load_locations()
+    if not locations:
+        return None
+    return locations[-1]
 
 
-# -----------------------------------------------------------------------------
-# Routes
-# -----------------------------------------------------------------------------
+def make_bbox(lat, lon, radius_km):
+    """
+    Construit un carré géographique (~rayon en km) autour d'un point.
 
-@app.route("/")
+    On utilise une approximation simple, largement suffisante pour un rayon de 30 km.
+    """
+    earth_radius_km = 6371.0
+
+    # 1° de latitude ~ 111 km
+    delta_lat = (radius_km / earth_radius_km) * (180.0 / math.pi)
+    # 1° de longitude dépend de la latitude
+    delta_lon = (radius_km / earth_radius_km) * (180.0 / math.pi) / math.cos(lat * math.pi / 180.0)
+
+    return {
+        "northEast": {"lat": lat + delta_lat, "lng": lon + delta_lon},
+        "southWest": {"lat": lat - delta_lat, "lng": lon - delta_lon},
+    }
+
+
+# ------------------------------
+# Routes front
+# ------------------------------
+
+
+@app.route('/')
 def index():
+    """Renvoie la page HTML principale."""
+    return send_from_directory('.', 'index.html')
+
+
+# ------------------------------
+# API : positions
+# ------------------------------
+
+
+@app.route('/api/location', methods=['GET', 'POST', 'DELETE'])
+def location_collection():
     """
-    Sert la page web principale (index.html).
-    Le fichier doit être à la racine du projet, à côté de server.py.
+    GET    -> renvoie toutes les positions
+    POST   -> ajoute une nouvelle position
+    DELETE -> efface toutes les positions
     """
-    return send_from_directory(BASE_DIR, "index.html")
-
-
-@app.route("/api/ping", methods=["POST"])
-def ping():
-    """
-    Enregistre chaque "connexion" (chargement de page) avec un client_id.
-    Appelée automatiquement par le front au chargement de la page.
-    """
-    try:
-        data = request.get_json(silent=True) or {}
-
-        client_id = data.get("client_id", "unknown")
-        user_agent = data.get("user_agent", request.headers.get("User-Agent", "unknown"))
-        ip = request.headers.get("X-Forwarded-For", request.remote_addr)
-
-        pings = load_pings()
-        entry = {
-            "client_id": client_id,
-            "ip": ip,
-            "user_agent": user_agent,
-            "timestamp": datetime.now().isoformat()
-        }
-        pings.append(entry)
-        save_pings(pings)
-
-        print(f"[PING] client_id={client_id} ip={ip}")
-        return jsonify({"status": "ok"}), 200
-
-    except Exception as e:
-        print("[PING][ERROR]", e)
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/location", methods=["POST"])
-def receive_location():
-    """
-    Reçoit la position envoyée par le navigateur (téléphone, PC, etc.)
-    et l'enregistre avec le client_id.
-    """
-    try:
-        data = request.get_json(silent=True) or {}
-
-        latitude = data.get("latitude")
-        longitude = data.get("longitude")
-        accuracy = data.get("accuracy")
-        client_id = data.get("client_id", "unknown")
-
-        if latitude is None or longitude is None:
-            return jsonify({"error": "Missing latitude or longitude"}), 400
-
-        ip = request.headers.get("X-Forwarded-For", request.remote_addr)
-
-        locations = load_locations()
-
-        entry = {
-            "client_id": client_id,
-            "latitude": latitude,
-            "longitude": longitude,
-            "accuracy": accuracy,
-            "ip": ip,
-            "timestamp": datetime.now().isoformat()
-        }
-
-        locations.append(entry)
-        save_locations(locations)
-
-        print(
-            f"[LOC] client_id={client_id} ip={ip} "
-            f"Lat={latitude} Lon={longitude} Acc={accuracy}m"
-        )
-
-        return jsonify({
-            "status": "success",
-            "message": "Location saved",
-            "data": entry
-        }), 200
-
-    except Exception as e:
-        print("[LOC][ERROR]", e)
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/locations", methods=["GET"])
-def get_locations():
-    """
-    Retourne toutes les positions enregistrées.
-    """
-    try:
+    if request.method == 'GET':
         locations = load_locations()
         return jsonify({
             "status": "success",
             "count": len(locations),
-            "locations": locations
+            "locations": locations,
         }), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
+    if request.method == 'POST':
+        try:
+            data = request.get_json(force=True)
+        except Exception:
+            return jsonify({"status": "error", "message": "Corps JSON invalide"}), 400
 
-@app.route("/api/location/latest", methods=["GET"])
-def get_latest_location():
-    """
-    Retourne la dernière position connue (tous clients confondus).
-    """
-    try:
-        locations = load_locations()
-        if not locations:
+        latitude = data.get("latitude")
+        longitude = data.get("longitude")
+        accuracy = data.get("accuracy")
+
+        if latitude is None or longitude is None:
+            return jsonify({"status": "error", "message": "latitude et longitude sont requises"}), 400
+
+        try:
+            entry = add_location(latitude, longitude, accuracy)
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+        return jsonify({"status": "success", "location": entry}), 201
+
+    if request.method == 'DELETE':
+        try:
+            save_locations([])
             return jsonify({
                 "status": "success",
-                "message": "No locations stored yet"
+                "message": "Toutes les positions ont été supprimées"
             }), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
 
+
+@app.route('/api/location/latest', methods=['GET'])
+def location_latest():
+    """Renvoie la dernière position enregistrée."""
+    latest = get_latest_location()
+    if latest is None:
         return jsonify({
-            "status": "success",
-            "location": locations[-1]
-        }), 200
+            "status": "error",
+            "message": "Aucune position enregistrée pour le moment"
+        }), 404
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "status": "success",
+        "location": latest,
+    }), 200
 
 
-@app.route("/api/locations/clear", methods=["DELETE"])
-def clear_locations():
+# ------------------------------
+# API : événements OpenAgenda
+# ------------------------------
+
+
+@app.route('/api/events/nearby', methods=['GET'])
+def events_nearby():
     """
-    Efface uniquement les positions du client_id fourni.
-    - client_id peut venir du JSON (corps de la requête)
-    - ou de la query string ?client_id=...
-    Ne supprime pas les positions des autres utilisateurs.
+    Renvoie les événements OpenAgenda dans un rayon de 30 km autour du
+    dernier point enregistré, pour les deux jours à venir.
+
+    Utilise la route transverse :
+      GET /v2/events
+    avec les filtres suivants :
+      - timings[gte] / timings[lte]
+      - geo[northEast][lat/lng], geo[southWest][lat/lng]
+      - relative[]=current & relative[]=upcoming
+      - state=2 (publié)
     """
-    try:
-        # Ne PAS provoquer d'erreur 415 si Content-Type n'est pas JSON
-        data = request.get_json(silent=True) or {}
-        client_id = data.get("client_id") or request.args.get("client_id")
-
-        if not client_id:
-            return jsonify({"error": "client_id is required"}), 400
-
-        locations = load_locations()
-        before = len(locations)
-        locations = [loc for loc in locations if loc.get("client_id") != client_id]
-        after = len(locations)
-        removed = before - after
-
-        save_locations(locations)
-
-        print(f"[CLEAR] client_id={client_id} removed={removed}")
-
+    # Vérifie qu'on a une position
+    latest = get_latest_location()
+    if latest is None:
         return jsonify({
-            "status": "success",
-            "message": f"{removed} locations removed for client_id={client_id}",
-            "removed": removed
-        }), 200
+            "status": "error",
+            "message": "Aucune position enregistrée, impossible de chercher des événements."
+        }), 404
 
-    except Exception as e:
-        print("[CLEAR][ERROR]", e)
-        return jsonify({"error": str(e)}), 500
+    lat = latest.get("latitude")
+    lon = latest.get("longitude")
+    if lat is None or lon is None:
+        return jsonify({
+            "status": "error",
+            "message": "Dernier point invalide (latitude/longitude manquantes)"
+        }), 500
 
-
-@app.route("/api/users", methods=["GET"])
-def list_users():
-    """
-    Liste les "utilisateurs" (client_id) distincts, avec le nombre de connexions
-    d'après le fichier pings.json.
-    """
     try:
-        pings = load_pings()
-        counts = Counter(p["client_id"] for p in pings)
-        users = [
-            {"client_id": cid, "connections": count}
-            for cid, count in counts.items()
-        ]
-        return jsonify({"status": "success", "users": users}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        lat = float(lat)
+        lon = float(lon)
+    except ValueError:
+        return jsonify({
+            "status": "error",
+            "message": "Coordonnées invalides"
+        }), 500
+
+    # Fenêtre temporelle : maintenant -> +2 jours
+    now = datetime.utcnow()
+    end = now + timedelta(days=2)
+
+    # Zone géographique ~ rayon 30 km
+    bbox = make_bbox(lat, lon, RADIUS_KM)
+
+    # Paramètres API OpenAgenda (lecture transverse)
+    params = {
+        "timings[gte]": now.isoformat(timespec="seconds") + "Z",
+        "timings[lte]": end.isoformat(timespec="seconds") + "Z",
+        "relative[]": ["current", "upcoming"],
+        "state": 2,
+        "geo[northEast][lat]": bbox["northEast"]["lat"],
+        "geo[northEast][lng]": bbox["northEast"]["lng"],
+        "geo[southWest][lat]": bbox["southWest"]["lat"],
+        "geo[southWest][lng]": bbox["southWest"]["lng"],
+        "monolingual": "fr",
+        "detailed": 1,
+        "size": 50,
+        "sort": "timings.asc",
+    }
+
+    url = f"{BASE_URL}/events"
+
+    try:
+        response = requests.get(
+            url,
+            headers={"key": API_KEY},
+            params=params,
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        return jsonify({
+            "status": "error",
+            "message": "Erreur de connexion à l'API OpenAgenda",
+            "details": str(e),
+        }), 502
+
+    if not response.ok:
+        return jsonify({
+            "status": "error",
+            "message": "Erreur API OpenAgenda",
+            "details": response.text,
+        }), response.status_code
+
+    data = response.json()
+    events = data.get("events", [])
+
+    simplified_events = []
+    for ev in events:
+        location = ev.get("location") or {}
+        timings = ev.get("timings") or []
+        first_timing = timings[0] if timings else {}
+
+        # Titre (multilingue possible)
+        title_field = ev.get("title")
+        if isinstance(title_field, dict):
+            title = title_field.get("fr") or next(iter(title_field.values()), "")
+        else:
+            title = title_field or ""
+
+        # URL OpenAgenda
+        slug = ev.get("slug")
+        openagenda_url = f"https://openagenda.com/e/{slug}" if slug else None
+
+        simplified_events.append({
+            "uid": ev.get("uid"),
+            "title": title,
+            "begin": first_timing.get("begin"),
+            "end": first_timing.get("end"),
+            "locationName": location.get("name"),
+            "city": location.get("city"),
+            "address": location.get("address"),
+            "latitude": location.get("latitude"),
+            "longitude": location.get("longitude"),
+            "openagendaUrl": openagenda_url,
+        })
+
+    return jsonify({
+        "status": "success",
+        "center": {"latitude": lat, "longitude": lon},
+        "radiusKm": RADIUS_KM,
+        "events": simplified_events,
+    }), 200
 
 
-# -----------------------------------------------------------------------------
-# Point d'entrée
-# -----------------------------------------------------------------------------
+# ------------------------------
+# Entrée principale
+# ------------------------------
 
-if __name__ == "__main__":
-    # Render fournit le port dans la variable d'environnement PORT
+if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     print(f"Starting server on port {port}")
-    app.run(host="0.0.0.0", port=port)
+    app.run(host='0.0.0.0', port=port)
