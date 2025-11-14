@@ -1,119 +1,227 @@
+import os
+import json
+from datetime import datetime
+from collections import Counter
+
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-from datetime import datetime
-import json
-import os
+
+# -----------------------------------------------------------------------------
+# Configuration de base
+# -----------------------------------------------------------------------------
 
 app = Flask(__name__)
 CORS(app)
 
-# File to store location data
-DATA_FILE = 'locations.json'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_FILE = os.path.join(BASE_DIR, "locations.json")
+PING_FILE = os.path.join(BASE_DIR, "pings.json")
+
+
+# -----------------------------------------------------------------------------
+# Fonctions utilitaires pour lire / écrire les fichiers JSON
+# -----------------------------------------------------------------------------
+
+def load_json(path, default):
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            # fichier corrompu → on repart de zéro
+            return default
+    return default
+
+
+def save_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
 
 def load_locations():
-    """Load locations from JSON file"""
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, 'r') as f:
-            return json.load(f)
-    return []
+    return load_json(DATA_FILE, [])
+
 
 def save_locations(locations):
-    """Save locations to JSON file"""
-    with open(DATA_FILE, 'w') as f:
-        json.dump(locations, f, indent=2)
+    save_json(DATA_FILE, locations)
 
-@app.route('/')
+
+def load_pings():
+    return load_json(PING_FILE, [])
+
+
+def save_pings(pings):
+    save_json(PING_FILE, pings)
+
+
+# -----------------------------------------------------------------------------
+# Routes
+# -----------------------------------------------------------------------------
+
+@app.route("/")
 def index():
-    """Serve the web app"""
-    return send_from_directory('.', 'index.html')
+    """
+    Sert la page web principale (index.html).
+    Le fichier doit être à la racine du projet, à côté de server.py.
+    """
+    return send_from_directory(BASE_DIR, "index.html")
 
-@app.route('/api/location', methods=['POST'])
-def receive_location():
-    """Receive location data from the phone"""
+
+@app.route("/api/ping", methods=["POST"])
+def ping():
+    """
+    Enregistre chaque "connexion" (chargement de page) avec un client_id.
+    Appelée automatiquement par le front au chargement de la page.
+    """
     try:
-        data = request.json
-        latitude = data.get('latitude')
-        longitude = data.get('longitude')
-        accuracy = data.get('accuracy')
+        data = request.json or {}
+
+        client_id = data.get("client_id", "unknown")
+        user_agent = data.get("user_agent", request.headers.get("User-Agent", "unknown"))
+        ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+
+        pings = load_pings()
+        entry = {
+            "client_id": client_id,
+            "ip": ip,
+            "user_agent": user_agent,
+            "timestamp": datetime.now().isoformat()
+        }
+        pings.append(entry)
+        save_pings(pings)
+
+        print(f"[PING] client_id={client_id} ip={ip}")
+        return jsonify({"status": "ok"}), 200
+
+    except Exception as e:
+        print("[PING][ERROR]", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/location", methods=["POST"])
+def receive_location():
+    """
+    Reçoit la position envoyée par le navigateur (téléphone, PC, etc.)
+    et l'enregistre avec le client_id.
+    """
+    try:
+        data = request.json or {}
+
+        latitude = data.get("latitude")
+        longitude = data.get("longitude")
+        accuracy = data.get("accuracy")
+        client_id = data.get("client_id", "unknown")
 
         if latitude is None or longitude is None:
-            return jsonify({'error': 'Missing latitude or longitude'}), 400
+            return jsonify({"error": "Missing latitude or longitude"}), 400
 
-        # Load existing locations
+        ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+
         locations = load_locations()
 
-        # Add new location with timestamp
-        location_entry = {
-            'latitude': latitude,
-            'longitude': longitude,
-            'accuracy': accuracy,
-            'timestamp': datetime.now().isoformat()
+        entry = {
+            "client_id": client_id,
+            "latitude": latitude,
+            "longitude": longitude,
+            "accuracy": accuracy,
+            "ip": ip,
+            "timestamp": datetime.now().isoformat()
         }
 
-        locations.append(location_entry)
-
-        # Save updated locations
+        locations.append(entry)
         save_locations(locations)
 
-        print(f"Location received: Lat={latitude}, Lon={longitude}, Accuracy={accuracy}m")
+        print(f"[LOC] client_id={client_id} ip={ip} "
+              f"Lat={latitude} Lon={longitude} Acc={accuracy}m")
 
         return jsonify({
-            'status': 'success',
-            'message': 'Location saved',
-            'data': location_entry
+            "status": "success",
+            "message": "Location saved",
+            "data": entry
         }), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        print("[LOC][ERROR]", e)
+        return jsonify({"error": str(e)}), 500
 
-@app.route('/api/locations', methods=['GET'])
+
+@app.route("/api/locations", methods=["GET"])
 def get_locations():
-    """Get all stored locations"""
+    """
+    Retourne toutes les positions enregistrées.
+    """
     try:
         locations = load_locations()
         return jsonify({
-            'status': 'success',
-            'count': len(locations),
-            'locations': locations
+            "status": "success",
+            "count": len(locations),
+            "locations": locations
         }), 200
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
-@app.route('/api/location/latest', methods=['GET'])
+
+@app.route("/api/location/latest", methods=["GET"])
 def get_latest_location():
-    """Get the most recent location"""
+    """
+    Retourne la dernière position connue (tous clients confondus).
+    """
     try:
         locations = load_locations()
-        if locations:
+        if not locations:
             return jsonify({
-                'status': 'success',
-                'location': locations[-1]
+                "status": "success",
+                "message": "No locations stored yet"
             }), 200
-        else:
-            return jsonify({
-                'status': 'success',
-                'message': 'No locations stored yet'
-            }), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
-@app.route('/api/locations/clear', methods=['DELETE'])
+        return jsonify({
+            "status": "success",
+            "location": locations[-1]
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/locations/clear", methods=["DELETE"])
 def clear_locations():
-    """Clear all stored locations"""
+    """
+    Efface toutes les positions enregistrées.
+    """
     try:
         save_locations([])
         return jsonify({
-            'status': 'success',
-            'message': 'All locations cleared'
+            "status": "success",
+            "message": "All locations cleared"
         }), 200
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':
+
+@app.route("/api/users", methods=["GET"])
+def list_users():
+    """
+    Liste les "utilisateurs" (client_id) distincts, avec le nombre de connexions
+    d'après le fichier pings.json.
+    """
+    try:
+        pings = load_pings()
+        counts = Counter(p["client_id"] for p in pings)
+        users = [
+            {"client_id": cid, "connections": count}
+            for cid, count in counts.items()
+        ]
+        return jsonify({"status": "success", "users": users}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# -----------------------------------------------------------------------------
+# Point d'entrée
+# -----------------------------------------------------------------------------
+
+if __name__ == "__main__":
     # Render fournit le port dans la variable d'environnement PORT
     port = int(os.environ.get("PORT", 5000))
-    print("Starting Location Tracking Server on port", port)
-
-    # En prod, évite debug=True
-    app.run(host='0.0.0.0', port=port)
+    print(f"Starting server on port {port}")
+    app.run(host="0.0.0.0", port=port)
