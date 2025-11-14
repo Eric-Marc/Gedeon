@@ -6,9 +6,9 @@ import os
 import math
 import requests
 
-# ------------------------------
+# -------------------------------------------------
 # Configuration de l'application
-# ------------------------------
+# -------------------------------------------------
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
@@ -16,18 +16,17 @@ CORS(app)
 # Fichier local pour stocker l'historique des positions
 DATA_FILE = 'locations.json'
 
-# Configuration OpenAgenda
-# Tu peux laisser ces valeurs en dur ou les surcharger via des variables d'environnement
+# Configuration OpenAgenda (lecture transverse /v2/events)
 API_KEY = os.environ.get("OPENAGENDA_API_KEY", "218909f158934e1badf3851a650ad6c1")
 BASE_URL = os.environ.get("OPENAGENDA_BASE_URL", "https://api.openagenda.com/v2")
 
-# Rayon de recherche des événements (en km)
+# Rayon de recherche des événements (km)
 RADIUS_KM = 30
 
-# ------------------------------
-# Fonctions utilitaires
-# ------------------------------
 
+# -------------------------------------------------
+# Fonctions utilitaires
+# -------------------------------------------------
 
 def load_locations():
     """Charge la liste des positions depuis le fichier JSON."""
@@ -74,7 +73,7 @@ def make_bbox(lat, lon, radius_km):
     """
     Construit un carré géographique (~rayon en km) autour d'un point.
 
-    On utilise une approximation simple, largement suffisante pour un rayon de 30 km.
+    Approximation suffisante pour un rayon de 30 km.
     """
     earth_radius_km = 6371.0
 
@@ -89,10 +88,9 @@ def make_bbox(lat, lon, radius_km):
     }
 
 
-# ------------------------------
+# -------------------------------------------------
 # Routes front
-# ------------------------------
-
+# -------------------------------------------------
 
 @app.route('/')
 def index():
@@ -100,10 +98,9 @@ def index():
     return send_from_directory('.', 'index.html')
 
 
-# ------------------------------
+# -------------------------------------------------
 # API : positions
-# ------------------------------
-
+# -------------------------------------------------
 
 @app.route('/api/location', methods=['GET', 'POST', 'DELETE'])
 def location_collection():
@@ -167,26 +164,18 @@ def location_latest():
     }), 200
 
 
-# ------------------------------
-# API : événements OpenAgenda
-# ------------------------------
-
+# -------------------------------------------------
+# API : événements OpenAgenda (lecture transverse)
+# -------------------------------------------------
 
 @app.route('/api/events/nearby', methods=['GET'])
 def events_nearby():
     """
     Renvoie les événements OpenAgenda dans un rayon de 30 km autour du
-    dernier point enregistré, pour les deux jours à venir.
-
-    Utilise la route transverse :
-      GET /v2/events
-    avec les filtres suivants :
-      - timings[gte] / timings[lte]
-      - geo[northEast][lat/lng], geo[southWest][lat/lng]
-      - relative[]=current & relative[]=upcoming
-      - state=2 (publié)
+    dernier point enregistré, pour les deux jours à venir, en utilisant
+    la lecture transverse /v2/events (multi-agendas).
     """
-    # Vérifie qu'on a une position
+    # 1. Vérifier qu'on a une position
     latest = get_latest_location()
     if latest is None:
         return jsonify({
@@ -199,7 +188,7 @@ def events_nearby():
     if lat is None or lon is None:
         return jsonify({
             "status": "error",
-            "message": "Dernier point invalide (latitude/longitude manquantes)"
+            "message": "Dernier point invalide (latitude/longitude manquantes)."
         }), 500
 
     try:
@@ -208,22 +197,23 @@ def events_nearby():
     except ValueError:
         return jsonify({
             "status": "error",
-            "message": "Coordonnées invalides"
+            "message": "Coordonnées invalides."
         }), 500
 
-    # Fenêtre temporelle : maintenant -> +2 jours
+    # 2. Fenêtre temporelle : maintenant -> +2 jours
     now = datetime.utcnow()
     end = now + timedelta(days=2)
 
-    # Zone géographique ~ rayon 30 km
+    # 3. Zone géographique (~30 km)
     bbox = make_bbox(lat, lon, RADIUS_KM)
 
-    # Paramètres API OpenAgenda (lecture transverse)
+    # 4. Construction de la requête transverse
+    #    /v2/events : mêmes paramètres que /v2/agendas/{agendaUID}/events
+    #    sans les paramètres propres aux agendas (state, champs additionnels...).
     params = {
         "timings[gte]": now.isoformat(timespec="seconds") + "Z",
         "timings[lte]": end.isoformat(timespec="seconds") + "Z",
         "relative[]": ["current", "upcoming"],
-        "state": 2,
         "geo[northEast][lat]": bbox["northEast"]["lat"],
         "geo[northEast][lng]": bbox["northEast"]["lng"],
         "geo[southWest][lat]": bbox["southWest"]["lat"],
@@ -244,16 +234,24 @@ def events_nearby():
             timeout=10,
         )
     except requests.RequestException as e:
+        print("Erreur de connexion OpenAgenda:", e)
         return jsonify({
             "status": "error",
             "message": "Erreur de connexion à l'API OpenAgenda",
             "details": str(e),
         }), 502
 
+    print("OpenAgenda status:", response.status_code)
+    try:
+        print("OpenAgenda body:", response.text[:500])
+    except Exception:
+        pass
+
     if not response.ok:
         return jsonify({
             "status": "error",
             "message": "Erreur API OpenAgenda",
+            "httpStatus": response.status_code,
             "details": response.text,
         }), response.status_code
 
@@ -266,14 +264,13 @@ def events_nearby():
         timings = ev.get("timings") or []
         first_timing = timings[0] if timings else {}
 
-        # Titre (multilingue possible)
+        # Titre potentiellement multilingue
         title_field = ev.get("title")
         if isinstance(title_field, dict):
             title = title_field.get("fr") or next(iter(title_field.values()), "")
         else:
             title = title_field or ""
 
-        # URL OpenAgenda
         slug = ev.get("slug")
         openagenda_url = f"https://openagenda.com/e/{slug}" if slug else None
 
@@ -298,11 +295,12 @@ def events_nearby():
     }), 200
 
 
-# ------------------------------
+# -------------------------------------------------
 # Entrée principale
-# ------------------------------
+# -------------------------------------------------
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     print(f"Starting server on port {port}")
+    print(f"Using OpenAgenda BASE_URL={BASE_URL}")
     app.run(host='0.0.0.0', port=port)
