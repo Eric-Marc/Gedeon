@@ -294,6 +294,7 @@ def events_nearby():
         * sinon géocode l'adresse avec Nominatim
         * calcule la distance au téléphone
         * garde seulement ceux à <= 100 km
+        * construit l'URL publique correcte OpenAgenda
     """
     try:
         # 1. Dernier point de localisation (téléphone)
@@ -340,6 +341,7 @@ def events_nearby():
 
         for agenda in agendas:
             uid = agenda.get('uid')
+            agenda_slug = agenda.get('slug')  # <--- slug de l'agenda pour l'URL publique
             title = agenda.get('title', {})
             if isinstance(title, dict):
                 agenda_title = title.get('fr') or title.get('en') or 'Agenda'
@@ -403,8 +405,12 @@ def events_nearby():
                 else:
                     ev_title = title_field or 'Événement'
 
-                slug = ev.get('slug')
-                openagenda_url = f"https://openagenda.com/e/{slug}" if slug else None
+                # slug de l'événement
+                event_slug = ev.get('slug')
+                openagenda_url = None
+                # Construction du lien public correct si on a les deux slugs
+                if agenda_slug and event_slug:
+                    openagenda_url = f"https://openagenda.com/{agenda_slug}/events/{event_slug}?lang=fr"
 
                 all_events.append({
                     "uid": ev.get("uid"),
