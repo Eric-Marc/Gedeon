@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import os
 import math
@@ -19,8 +19,9 @@ DATA_FILE = 'locations.json'
 API_KEY = os.environ.get("OPENAGENDA_API_KEY", "218909f158934e1badf3851a650ad6c1")
 BASE_URL = os.environ.get("OPENAGENDA_BASE_URL", "https://api.openagenda.com/v2")
 
-# Rayon (km) autour du téléphone
-RADIUS_KM = 100
+# Valeurs par défaut (si aucun paramètre n'est passé par le front)
+RADIUS_KM_DEFAULT = 100
+DAYS_AHEAD_DEFAULT = 2
 
 # Cache simple en mémoire pour les géocodages Nominatim
 GEOCODE_CACHE = {}
@@ -278,25 +279,39 @@ def location_latest():
 
 
 # -------------------------------------------------
-# API : événements à proximité (rayon 100 km autour du téléphone)
+# API : événements à proximité (rayon / jours paramétrables)
 # -------------------------------------------------
 
 @app.route('/api/events/nearby', methods=['GET'])
 def events_nearby():
     """
-    Cherche des événements dans un rayon de 100 km autour du dernier point
-    de localisation du téléphone.
+    Cherche des événements autour du dernier point de localisation du téléphone.
 
-    - Récupère les agendas accessibles via l'API (sans filtre de ville)
-    - Récupère leurs événements (current + upcoming)
-    - Pour chaque événement :
-        * utilise location.latitude/longitude si présents
-        * sinon géocode l'adresse avec Nominatim
-        * calcule la distance au téléphone
-        * garde seulement ceux à <= 100 km
-        * construit l'URL publique correcte OpenAgenda
+    Paramètres de requête (GET) :
+      - radiusKm : rayon en kilomètres (float, optionnel)
+      - days     : nombre de jours à venir (int, optionnel)
+
+    Pipeline :
+      - Récupère les agendas accessibles via l'API (sans filtre de ville)
+      - Récupère leurs événements (current + upcoming)
+      - Filtre par date : entre maintenant et maintenant + days
+      - Pour chaque événement :
+          * utilise location.latitude/longitude si présents
+          * sinon géocode l'adresse avec Nominatim
+          * calcule la distance au téléphone
+          * garde seulement ceux à <= radiusKm
     """
     try:
+        # 0. Lecture des paramètres de filtrage
+        radius_param = request.args.get("radiusKm", type=float)
+        days_param = request.args.get("days", type=int)
+
+        radius_km = radius_param if (radius_param is not None and radius_param > 0) else RADIUS_KM_DEFAULT
+        days_ahead = days_param if (days_param is not None and days_param >= 0) else DAYS_AHEAD_DEFAULT
+
+        now = datetime.now(timezone.utc)
+        end = now + timedelta(days=days_ahead)
+
         # 1. Dernier point de localisation (téléphone)
         latest = get_latest_location()
         if latest is None:
@@ -330,18 +345,19 @@ def events_nearby():
             return jsonify({
                 "status": "success",
                 "center": {"latitude": center_lat, "longitude": center_lon},
-                "radiusKm": RADIUS_KM,
+                "radiusKm": radius_km,
+                "days": days_ahead,
                 "events": [],
                 "count": 0,
                 "info": "Aucun agenda trouvé pour cette clé API."
             }), 200
 
-        # 3. Récupération des événements agenda par agenda + filtrage par distance
+        # 3. Récupération des événements agenda par agenda + filtrage par distance et date
         all_events = []
 
         for agenda in agendas:
             uid = agenda.get('uid')
-            agenda_slug = agenda.get('slug')  # <--- slug de l'agenda pour l'URL publique
+            agenda_slug = agenda.get('slug')  # slug de l'agenda pour l'URL publique
             title = agenda.get('title', {})
             if isinstance(title, dict):
                 agenda_title = title.get('fr') or title.get('en') or 'Agenda'
@@ -362,6 +378,10 @@ def events_nearby():
                 begin_str = first_timing.get('begin')
                 begin_dt = parse_iso_datetime(begin_str)
                 if not begin_dt:
+                    continue
+
+                # Filtre temporel : maintenant -> maintenant + days_ahead
+                if not (now <= begin_dt <= end):
                     continue
 
                 loc = ev.get('location') or {}
@@ -396,7 +416,7 @@ def events_nearby():
                     continue
 
                 dist = haversine_km(center_lat, center_lon, ev_lat, ev_lon)
-                if dist > RADIUS_KM:
+                if dist > radius_km:
                     continue
 
                 title_field = ev.get('title')
@@ -433,7 +453,8 @@ def events_nearby():
         return jsonify({
             "status": "success",
             "center": {"latitude": center_lat, "longitude": center_lon},
-            "radiusKm": RADIUS_KM,
+            "radiusKm": radius_km,
+            "days": days_ahead,
             "events": all_events,
             "count": len(all_events),
         }), 200
@@ -455,5 +476,5 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     print(f"Starting server on port {port}")
     print(f"OpenAgenda BASE_URL={BASE_URL}")
-    print(f"Radius = {RADIUS_KM} km")
+    print(f"Radius default = {RADIUS_KM_DEFAULT} km, days default = {DAYS_AHEAD_DEFAULT}")
     app.run(host='0.0.0.0', port=port)
