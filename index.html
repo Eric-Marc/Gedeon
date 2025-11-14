@@ -1,392 +1,358 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Phone Location Tracker</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+  <meta charset="UTF-8" />
+  <title>Gedeon - Location Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #0f172a;
+      color: #e5e7eb;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+    }
 
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
-            padding: 30px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-        }
+    .container {
+      margin-top: 40px;
+      max-width: 600px;
+      width: 100%;
+      background: #020617;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+      border: 1px solid #1f2937;
+    }
 
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 28px;
-        }
+    h1 {
+      margin-top: 0;
+      font-size: 1.6rem;
+      margin-bottom: 4px;
+    }
 
-        .subtitle {
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 14px;
-        }
+    h2 {
+      font-size: 1.1rem;
+      margin-top: 24px;
+      margin-bottom: 8px;
+    }
 
-        .status {
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            font-weight: 500;
-        }
+    .subtitle {
+      font-size: 0.9rem;
+      color: #9ca3af;
+      margin-bottom: 16px;
+    }
 
-        .status.waiting {
-            background: #fef3c7;
-            color: #92400e;
-        }
+    .client-id {
+      font-family: "Fira Code", monospace;
+      font-size: 0.75rem;
+      word-break: break-all;
+      background: #020617;
+      border-radius: 8px;
+      padding: 8px;
+      border: 1px solid #1f2937;
+      margin-bottom: 12px;
+    }
 
-        .status.active {
-            background: #d1fae5;
-            color: #065f46;
-        }
+    button {
+      background: #1d4ed8;
+      border: none;
+      color: #e5e7eb;
+      padding: 10px 16px;
+      font-size: 0.9rem;
+      border-radius: 999px;
+      cursor: pointer;
+      margin: 4px 4px 8px 0;
+    }
 
-        .status.error {
-            background: #fee2e2;
-            color: #991b1b;
-        }
+    button.secondary {
+      background: #374151;
+    }
 
-        .location-info {
-            background: #f3f4f6;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
+    button.danger {
+      background: #b91c1c;
+    }
 
-        .location-info h3 {
-            color: #374151;
-            margin-bottom: 15px;
-            font-size: 16px;
-        }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
 
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 0;
-            border-bottom: 1px solid #e5e7eb;
-        }
+    .status {
+      font-size: 0.85rem;
+      margin-top: 8px;
+      color: #9ca3af;
+      white-space: pre-line;
+    }
 
-        .info-row:last-child {
-            border-bottom: none;
-        }
+    .log {
+      margin-top: 12px;
+      padding: 8px;
+      border-radius: 8px;
+      background: #020617;
+      border: 1px solid #1f2937;
+      font-size: 0.8rem;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
 
-        .info-label {
-            color: #6b7280;
-            font-weight: 500;
-        }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      background: #0b1120;
+      border: 1px solid #1f2937;
+      color: #9ca3af;
+      margin-bottom: 6px;
+    }
 
-        .info-value {
-            color: #111827;
-            font-family: monospace;
-        }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #22c55e;
+    }
 
-        .button-group {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
+    a {
+      color: #60a5fa;
+      text-decoration: none;
+    }
 
-        button {
-            flex: 1;
-            padding: 15px 25px;
-            border: none;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .btn-primary {
-            background: #667eea;
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-secondary {
-            background: #10b981;
-            color: white;
-        }
-
-        .btn-secondary:hover {
-            background: #059669;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(16, 185, 129, 0.4);
-        }
-
-        .btn-danger {
-            background: #ef4444;
-            color: white;
-        }
-
-        .btn-danger:hover {
-            background: #dc2626;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(239, 68, 68, 0.4);
-        }
-
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none !important;
-        }
-
-        .map-link {
-            display: inline-block;
-            margin-top: 10px;
-            color: #667eea;
-            text-decoration: none;
-            font-weight: 500;
-        }
-
-        .map-link:hover {
-            text-decoration: underline;
-        }
-
-        .log {
-            background: #1f2937;
-            color: #10b981;
-            padding: 15px;
-            border-radius: 10px;
-            font-family: monospace;
-            font-size: 12px;
-            max-height: 200px;
-            overflow-y: auto;
-            margin-top: 20px;
-        }
-
-        .log-entry {
-            margin-bottom: 5px;
-        }
-
-        .timestamp {
-            color: #6b7280;
-            margin-right: 10px;
-        }
-
-        @media (max-width: 480px) {
-            .button-group {
-                flex-direction: column;
-            }
-        }
-    </style>
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>📍 Phone Location Tracker</h1>
-        <p class="subtitle">Track and send your phone's location to the server</p>
+<div class="container">
+  <h1>Gedeon - Tracker</h1>
+  <div class="subtitle">
+    Suivi de localisation simple, avec un identifiant unique par navigateur (client_id).
+  </div>
 
-        <div id="status" class="status waiting">
-            ⏳ Waiting to start tracking...
-        </div>
+  <div class="badge">
+    <span class="dot"></span>
+    <span id="server-url"></span>
+  </div>
 
-        <div class="button-group">
-            <button id="startBtn" class="btn-primary" onclick="startTracking()">Start Tracking</button>
-            <button id="stopBtn" class="btn-danger" onclick="stopTracking()" disabled>Stop Tracking</button>
-        </div>
+  <h2>Client ID (navigateur)</h2>
+  <div class="client-id" id="client-id">–</div>
 
-        <div class="button-group">
-            <button class="btn-secondary" onclick="sendOnce()">Send Once</button>
-            <button class="btn-secondary" onclick="viewLocations()">View All</button>
-        </div>
+  <h2>Actions</h2>
+  <div>
+    <button id="btn-send-once">📍 Envoyer une position</button>
+    <button id="btn-start">▶️ Start tracking</button>
+    <button id="btn-stop" class="secondary" disabled>⏸ Stop tracking</button>
+    <button id="btn-latest" class="secondary">🔎 Dernière position</button>
+    <button id="btn-clear" class="danger">🧹 Clear positions</button>
+  </div>
 
-        <div id="locationInfo" class="location-info" style="display: none;">
-            <h3>Current Location</h3>
-            <div class="info-row">
-                <span class="info-label">Latitude:</span>
-                <span class="info-value" id="latitude">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Longitude:</span>
-                <span class="info-value" id="longitude">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Accuracy:</span>
-                <span class="info-value" id="accuracy">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Last Updated:</span>
-                <span class="info-value" id="timestamp">-</span>
-            </div>
-            <a id="mapLink" class="map-link" href="#" target="_blank">📍 Open in Google Maps</a>
-        </div>
+  <div class="status" id="status">Prêt.</div>
 
-        <div class="log" id="log"></div>
-    </div>
+  <h2>Log</h2>
+  <div class="log" id="log"></div>
 
-    <script>
-        let watchId = null;
-        let isTracking = false;
-        const SERVER_URL = "https://gedeon-2.onrender.com/";
+  <h2>API utiles</h2>
+  <div class="status">
+    - <code>GET /api/users</code> : liste des client_id et nombre de connexions<br>
+    - <code>GET /api/locations</code> : toutes les positions<br>
+    - <code>GET /api/location/latest</code> : dernière position<br>
+    - <code>DELETE /api/locations/clear</code> : effacer toutes les positions
+  </div>
+</div>
 
-        function log(message, type = 'info') {
-            const logDiv = document.getElementById('log');
-            const timestamp = new Date().toLocaleTimeString();
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            entry.innerHTML = `<span class="timestamp">[${timestamp}]</span>${message}`;
-            logDiv.appendChild(entry);
-            logDiv.scrollTop = logDiv.scrollHeight;
-        }
+<script>
+  const SERVER_URL = window.location.origin;
 
-        function updateStatus(message, type) {
-            const statusDiv = document.getElementById('status');
-            statusDiv.textContent = message;
-            statusDiv.className = `status ${type}`;
-        }
+  // ---------------------------------------------------------------------------
+  // Gestion du client_id (identifiant unique par navigateur / profil)
+  // ---------------------------------------------------------------------------
+  function getOrCreateClientId() {
+    let id = localStorage.getItem('client_id');
+    if (!id) {
+      if (window.crypto && window.crypto.randomUUID) {
+        id = window.crypto.randomUUID();
+      } else {
+        id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      }
+      localStorage.setItem('client_id', id);
+      console.log('New client_id generated:', id);
+    } else {
+      console.log('Existing client_id:', id);
+    }
+    return id;
+  }
 
-        function updateLocationDisplay(position) {
-            const lat = position.coords.latitude;
-            const lon = position.coords.longitude;
-            const acc = Math.round(position.coords.accuracy);
+  const CLIENT_ID = getOrCreateClientId();
+  document.getElementById('client-id').textContent = CLIENT_ID;
+  document.getElementById('server-url').textContent = SERVER_URL;
 
-            document.getElementById('latitude').textContent = lat.toFixed(6);
-            document.getElementById('longitude').textContent = lon.toFixed(6);
-            document.getElementById('accuracy').textContent = `${acc} meters`;
-            document.getElementById('timestamp').textContent = new Date().toLocaleString();
-            document.getElementById('mapLink').href = `https://www.google.com/maps?q=${lat},${lon}`;
-            document.getElementById('locationInfo').style.display = 'block';
-        }
+  const statusEl = document.getElementById('status');
+  const logEl = document.getElementById('log');
 
-        async function sendLocation(position) {
-            try {
-                const data = {
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
-                    accuracy: position.coords.accuracy
-                };
+  function setStatus(text) {
+    statusEl.textContent = text;
+    console.log('[STATUS]', text);
+  }
 
-                const response = await fetch(`${SERVER_URL}/api/location`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(data)
-                });
+  function addLog(line) {
+    const ts = new Date().toISOString();
+    logEl.textContent = `[${ts}] ${line}\n` + logEl.textContent;
+  }
 
-                const result = await response.json();
+  // ---------------------------------------------------------------------------
+  // Ping serveur à chaque ouverture de page
+  // ---------------------------------------------------------------------------
+  async function pingServer() {
+    try {
+      await fetch(`${SERVER_URL}/api/ping`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: CLIENT_ID,
+          user_agent: navigator.userAgent
+        })
+      });
+      addLog('Ping envoyé au serveur.');
+    } catch (e) {
+      console.error('Ping error:', e);
+      addLog('Erreur ping serveur: ' + e);
+    }
+  }
 
-                if (response.ok) {
-                    log(`✓ Location sent successfully (±${Math.round(data.accuracy)}m)`, 'success');
-                    updateLocationDisplay(position);
-                    updateStatus('🟢 Tracking active - Location sent successfully', 'active');
-                } else {
-                    log(`✗ Error: ${result.error}`, 'error');
-                    updateStatus('🔴 Error sending location', 'error');
-                }
-            } catch (error) {
-                log(`✗ Network error: ${error.message}`, 'error');
-                updateStatus('🔴 Network error - Check server connection', 'error');
-            }
-        }
+  window.addEventListener('load', pingServer);
 
-        function startTracking() {
-            if (!navigator.geolocation) {
-                updateStatus('🔴 Geolocation not supported', 'error');
-                log('✗ Geolocation is not supported by this browser', 'error');
-                return;
-            }
+  // ---------------------------------------------------------------------------
+  // Envoi de la position
+  // ---------------------------------------------------------------------------
+  function getPosition(options = {}) {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        return reject(new Error("La géolocalisation n'est pas supportée."));
+      }
+      navigator.geolocation.getCurrentPosition(resolve, reject, options);
+    });
+  }
 
-            if (isTracking) return;
+  async function sendLocationOnce() {
+    try {
+      setStatus('Demande de position...');
+      const pos = await getPosition({ enableHighAccuracy: true, timeout: 10000 });
 
-            isTracking = true;
-            document.getElementById('startBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = false;
-            updateStatus('🟡 Starting location tracking...', 'active');
-            log('Starting continuous location tracking...', 'info');
+      const payload = {
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+        client_id: CLIENT_ID
+      };
 
-            watchId = navigator.geolocation.watchPosition(
-                sendLocation,
-                (error) => {
-                    log(`✗ Location error: ${error.message}`, 'error');
-                    updateStatus('🔴 Location access denied or unavailable', 'error');
-                },
-                {
-                    enableHighAccuracy: true,
-                    maximumAge: 0,
-                    timeout: 10000
-                }
-            );
-        }
+      setStatus('Envoi de la position au serveur...');
+      const res = await fetch(`${SERVER_URL}/api/location`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-        function stopTracking() {
-            if (watchId !== null) {
-                navigator.geolocation.clearWatch(watchId);
-                watchId = null;
-            }
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erreur HTTP');
+      }
 
-            isTracking = false;
-            document.getElementById('startBtn').disabled = false;
-            document.getElementById('stopBtn').disabled = true;
-            updateStatus('⏸️ Tracking stopped', 'waiting');
-            log('Tracking stopped', 'info');
-        }
+      setStatus('Position envoyée.');
+      addLog(`Position envoyée: lat=${payload.latitude}, lon=${payload.longitude}, acc=${payload.accuracy}m`);
+    } catch (e) {
+      console.error(e);
+      setStatus('Erreur: ' + e.message);
+      addLog('Erreur position: ' + e.message);
+    }
+  }
 
-        function sendOnce() {
-            if (!navigator.geolocation) {
-                updateStatus('🔴 Geolocation not supported', 'error');
-                return;
-            }
+  // ---------------------------------------------------------------------------
+  // Tracking continu (intervalle)
+  // ---------------------------------------------------------------------------
+  let trackingInterval = null;
 
-            updateStatus('🟡 Getting location...', 'active');
-            log('Getting current location...', 'info');
+  function startTracking() {
+    if (trackingInterval) return;
+    setStatus('Tracking démarré (toutes les 30s)...');
+    addLog('Tracking démarré.');
+    trackingInterval = setInterval(sendLocationOnce, 30000);
+    sendLocationOnce();
+    document.getElementById('btn-start').disabled = true;
+    document.getElementById('btn-stop').disabled = false;
+  }
 
-            navigator.geolocation.getCurrentPosition(
-                sendLocation,
-                (error) => {
-                    log(`✗ Location error: ${error.message}`, 'error');
-                    updateStatus('🔴 Could not get location', 'error');
-                },
-                {
-                    enableHighAccuracy: true,
-                    maximumAge: 0,
-                    timeout: 10000
-                }
-            );
-        }
+  function stopTracking() {
+    if (trackingInterval) {
+      clearInterval(trackingInterval);
+      trackingInterval = null;
+      setStatus('Tracking arrêté.');
+      addLog('Tracking arrêté.');
+      document.getElementById('btn-start').disabled = false;
+      document.getElementById('btn-stop').disabled = true;
+    }
+  }
 
-        async function viewLocations() {
-            try {
-                const response = await fetch(`${SERVER_URL}/api/locations`);
-                const result = await response.json();
+  // ---------------------------------------------------------------------------
+  // Récupérer la dernière position
+  // ---------------------------------------------------------------------------
+  async function fetchLatest() {
+    try {
+      const res = await fetch(`${SERVER_URL}/api/location/latest`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur HTTP');
 
-                if (response.ok) {
-                    log(`📊 Total locations stored: ${result.count}`, 'info');
-                    if (result.count > 0) {
-                        const latest = result.locations[result.locations.length - 1];
-                        log(`Latest: ${latest.latitude.toFixed(6)}, ${latest.longitude.toFixed(6)} at ${new Date(latest.timestamp).toLocaleString()}`, 'info');
-                    }
-                } else {
-                    log(`✗ Error fetching locations: ${result.error}`, 'error');
-                }
-            } catch (error) {
-                log(`✗ Network error: ${error.message}`, 'error');
-            }
-        }
+      if (!data.location) {
+        setStatus(data.message || 'Aucune position enregistrée.');
+        addLog('Pas de position.');
+        return;
+      }
 
-        // Initialize
-        log('Location Tracker initialized', 'info');
-        log(`Server: ${SERVER_URL}`, 'info');
-    </script>
+      const loc = data.location;
+      setStatus('Dernière position chargée.');
+      addLog(`Dernière position: client_id=${loc.client_id} lat=${loc.latitude}, lon=${loc.longitude}, acc=${loc.accuracy}m`);
+    } catch (e) {
+      setStatus('Erreur: ' + e.message);
+      addLog('Erreur /api/location/latest: ' + e.message);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Effacer toutes les positions
+  // ---------------------------------------------------------------------------
+  async function clearLocations() {
+    if (!confirm('Effacer toutes les positions du serveur ?')) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/api/locations/clear`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur HTTP');
+
+      setStatus('Toutes les positions ont été effacées.');
+      addLog('Positions effacées sur le serveur.');
+    } catch (e) {
+      setStatus('Erreur: ' + e.message);
+      addLog('Erreur clear locations: ' + e.message);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Wiring des boutons
+  // ---------------------------------------------------------------------------
+  document.getElementById('btn-send-once').addEventListener('click', sendLocationOnce);
+  document.getElementById('btn-start').addEventListener('click', startTracking);
+  document.getElementById('btn-stop').addEventListener('click', stopTracking);
+  document.getElementById('btn-latest').addEventListener('click', fetchLatest);
+  document.getElementById('btn-clear').addEventListener('click', clearLocations);
+</script>
 </body>
 </html>
