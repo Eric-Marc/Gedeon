@@ -74,7 +74,7 @@ def ping():
     Appelée automatiquement par le front au chargement de la page.
     """
     try:
-        data = request.json or {}
+        data = request.get_json(silent=True) or {}
 
         client_id = data.get("client_id", "unknown")
         user_agent = data.get("user_agent", request.headers.get("User-Agent", "unknown"))
@@ -105,7 +105,7 @@ def receive_location():
     et l'enregistre avec le client_id.
     """
     try:
-        data = request.json or {}
+        data = request.get_json(silent=True) or {}
 
         latitude = data.get("latitude")
         longitude = data.get("longitude")
@@ -188,12 +188,15 @@ def get_latest_location():
 @app.route("/api/locations/clear", methods=["DELETE"])
 def clear_locations():
     """
-    Efface uniquement les positions du client_id fourni dans la requête.
+    Efface uniquement les positions du client_id fourni.
+    - client_id peut venir du JSON (corps de la requête)
+    - ou de la query string ?client_id=...
     Ne supprime pas les positions des autres utilisateurs.
     """
     try:
-        data = request.json or {}
-        client_id = data.get("client_id")
+        # Ne PAS provoquer d'erreur 415 si Content-Type n'est pas JSON
+        data = request.get_json(silent=True) or {}
+        client_id = data.get("client_id") or request.args.get("client_id")
 
         if not client_id:
             return jsonify({"error": "client_id is required"}), 400
@@ -215,6 +218,7 @@ def clear_locations():
         }), 200
 
     except Exception as e:
+        print("[CLEAR][ERROR]", e)
         return jsonify({"error": str(e)}), 500
 
 
