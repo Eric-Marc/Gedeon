@@ -152,7 +152,7 @@
     <button id="btn-start">▶️ Start tracking</button>
     <button id="btn-stop" class="secondary" disabled>⏸ Stop tracking</button>
     <button id="btn-latest" class="secondary">🔎 Dernière position</button>
-    <button id="btn-clear" class="danger">🧹 Clear positions</button>
+    <button id="btn-clear" class="danger">🧹 Clear MES positions</button>
   </div>
 
   <div class="status" id="status">Prêt.</div>
@@ -165,7 +165,7 @@
     - <code>GET /api/users</code> : liste des client_id et nombre de connexions<br>
     - <code>GET /api/locations</code> : toutes les positions<br>
     - <code>GET /api/location/latest</code> : dernière position<br>
-    - <code>DELETE /api/locations/clear</code> : effacer toutes les positions
+    - <code>DELETE /api/locations/clear</code> : effacer les positions de CE client_id
   </div>
 </div>
 
@@ -326,19 +326,22 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Effacer toutes les positions
+  // Effacer les positions du client courant uniquement
   // ---------------------------------------------------------------------------
   async function clearLocations() {
-    if (!confirm('Effacer toutes les positions du serveur ?')) return;
+    if (!confirm('Effacer toutes MES positions (client_id courant) sur le serveur ?')) return;
     try {
       const res = await fetch(`${SERVER_URL}/api/locations/clear`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: CLIENT_ID })
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur HTTP');
 
-      setStatus('Toutes les positions ont été effacées.');
-      addLog('Positions effacées sur le serveur.');
+      setStatus(data.message || 'Positions effacées pour ce client_id.');
+      addLog(`Clear: ${data.removed ?? '?'} positions supprimées pour ce client_id.`);
     } catch (e) {
       setStatus('Erreur: ' + e.message);
       addLog('Erreur clear locations: ' + e.message);
