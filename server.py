@@ -13,23 +13,25 @@ import requests
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
-# Fichier local pour stocker l'historique des positions
 DATA_FILE = 'locations.json'
 
-# Configuration OpenAgenda (lecture transverse /v2/events)
+# === OpenAgenda (même config que ton script) ===
 API_KEY = os.environ.get("OPENAGENDA_API_KEY", "218909f158934e1badf3851a650ad6c1")
 BASE_URL = os.environ.get("OPENAGENDA_BASE_URL", "https://api.openagenda.com/v2")
 
-# Rayon de recherche des événements (km)
+# Ville utilisée pour chercher les agendas (comme ton script Toulouse)
+DEFAULT_CITY = os.environ.get("OPENAGENDA_CITY", "Toulouse")
+
+# Rayon et fenêtre de temps
 RADIUS_KM = 30
+DAYS_AHEAD = 2
 
 
 # -------------------------------------------------
-# Fonctions utilitaires
+# Fonctions utilitaires : stockage des positions
 # -------------------------------------------------
 
 def load_locations():
-    """Charge la liste des positions depuis le fichier JSON."""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
@@ -42,13 +44,11 @@ def load_locations():
 
 
 def save_locations(locations):
-    """Sauvegarde la liste des positions dans le fichier JSON."""
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(locations, f, ensure_ascii=False, indent=2)
 
 
 def add_location(latitude, longitude, accuracy=None):
-    """Ajoute une position à l'historique."""
     locations = load_locations()
     entry = {
         "latitude": float(latitude),
@@ -62,30 +62,86 @@ def add_location(latitude, longitude, accuracy=None):
 
 
 def get_latest_location():
-    """Retourne la dernière position enregistrée, ou None."""
     locations = load_locations()
     if not locations:
         return None
     return locations[-1]
 
 
-def make_bbox(lat, lon, radius_km):
-    """
-    Construit un carré géographique (~rayon en km) autour d'un point.
+# -------------------------------------------------
+# Fonctions utilitaires : OpenAgenda (comme ton script)
+# -------------------------------------------------
 
-    Approximation suffisante pour un rayon de 30 km.
-    """
-    earth_radius_km = 6371.0
-
-    # 1° de latitude ~ 111 km
-    delta_lat = (radius_km / earth_radius_km) * (180.0 / math.pi)
-    # 1° de longitude dépend de la latitude
-    delta_lon = (radius_km / earth_radius_km) * (180.0 / math.pi) / math.cos(lat * math.pi / 180.0)
-
+def get_headers():
+    """Entêtes de requête OpenAgenda, comme dans find_toulouse_events.py."""
     return {
-        "northEast": {"lat": lat + delta_lat, "lng": lon + delta_lon},
-        "southWest": {"lat": lat - delta_lat, "lng": lon - delta_lon},
+        "key": API_KEY,
+        "Content-Type": "application/json"
     }
+
+
+def search_agendas(search_term=None, official=None, limit=10):
+    """Recherche d'agendas (identique au script)."""
+    url = f"{BASE_URL}/agendas"
+    params = {"size": min(limit, 100)}
+
+    if search_term:
+        params["search"] = search_term
+    if official is not None:
+        params["official"] = 1 if official else 0
+
+    try:
+        r = requests.get(url, headers=get_headers(), params=params, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error searching agendas: {e}")
+        return None
+
+
+def get_events_from_agenda(agenda_uid, limit=50, city=None):
+    """Récupère les événements d'un agenda, comme dans le script, avec `city[]`."""
+    url = f"{BASE_URL}/agendas/{agenda_uid}/events"
+
+    params = {
+        "size": min(limit, 300),
+        "detailed": 1,
+        "relative[]": "upcoming"   # comme ton script
+    }
+    if city:
+        params["city[]"] = city
+
+    try:
+        r = requests.get(url, headers=get_headers(), params=params, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error fetching events from agenda {agenda_uid}: {e}")
+        return None
+
+
+def parse_iso_datetime(s):
+    """Parse une date ISO en datetime UTC."""
+    if not s:
+        return None
+    try:
+        # Comme dans ton script : remplacer Z par +00:00
+        return datetime.fromisoformat(s.replace('Z', '+00:00'))
+    except Exception:
+        return None
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    """Distance en km entre deux points (latitude/longitude)."""
+    R = 6371.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
 
 
 # -------------------------------------------------
@@ -94,7 +150,6 @@ def make_bbox(lat, lon, radius_km):
 
 @app.route('/')
 def index():
-    """Renvoie la page HTML principale."""
     return send_from_directory('.', 'index.html')
 
 
@@ -104,11 +159,6 @@ def index():
 
 @app.route('/api/location', methods=['GET', 'POST', 'DELETE'])
 def location_collection():
-    """
-    GET    -> renvoie toutes les positions
-    POST   -> ajoute une nouvelle position
-    DELETE -> efface toutes les positions
-    """
     if request.method == 'GET':
         locations = load_locations()
         return jsonify({
@@ -150,7 +200,6 @@ def location_collection():
 
 @app.route('/api/location/latest', methods=['GET'])
 def location_latest():
-    """Renvoie la dernière position enregistrée."""
     latest = get_latest_location()
     if latest is None:
         return jsonify({
@@ -165,17 +214,20 @@ def location_latest():
 
 
 # -------------------------------------------------
-# API : événements OpenAgenda (lecture transverse)
+# API : événements à proximité (multi-agendas, SANS /v2/events)
 # -------------------------------------------------
 
 @app.route('/api/events/nearby', methods=['GET'])
 def events_nearby():
     """
-    Renvoie les événements OpenAgenda dans un rayon de 30 km autour du
-    dernier point enregistré, pour les deux jours à venir, en utilisant
-    la lecture transverse /v2/events (multi-agendas).
+    Cherche des événements dans un rayon de 30 km autour du dernier point,
+    pour les 2 jours à venir, en utilisant UNIQUEMENT :
+      - GET /v2/agendas
+      - GET /v2/agendas/{uid}/events
+    comme dans find_toulouse_events.py, puis filtrage côté serveur.
     """
-    # 1. Vérifier qu'on a une position
+
+    # 1. Dernier point de localisation
     latest = get_latest_location()
     if latest is None:
         return jsonify({
@@ -183,124 +235,53 @@ def events_nearby():
             "message": "Aucune position enregistrée, impossible de chercher des événements."
         }), 404
 
-    lat = latest.get("latitude")
-    lon = latest.get("longitude")
-    if lat is None or lon is None:
+    center_lat = latest.get("latitude")
+    center_lon = latest.get("longitude")
+    if center_lat is None or center_lon is None:
         return jsonify({
             "status": "error",
             "message": "Dernier point invalide (latitude/longitude manquantes)."
         }), 500
 
     try:
-        lat = float(lat)
-        lon = float(lon)
+        center_lat = float(center_lat)
+        center_lon = float(center_lon)
     except ValueError:
         return jsonify({
             "status": "error",
             "message": "Coordonnées invalides."
         }), 500
 
-    # 2. Fenêtre temporelle : maintenant -> +2 jours
     now = datetime.utcnow()
-    end = now + timedelta(days=2)
+    end = now + timedelta(days=DAYS_AHEAD)
 
-    # 3. Zone géographique (~30 km)
-    bbox = make_bbox(lat, lon, RADIUS_KM)
+    # 2. Recherche d'agendas comme dans ton script (ville "Toulouse")
+    #    → multi-agendas, mais uniquement ceux reliés à la ville choisie.
+    agendas_result = search_agendas(search_term=DEFAULT_CITY, limit=30)
 
-    # 4. Construction de la requête transverse
-    #    /v2/events : mêmes paramètres que /v2/agendas/{agendaUID}/events
-    #    sans les paramètres propres aux agendas (state, champs additionnels...).
-    params = {
-        "timings[gte]": now.isoformat(timespec="seconds") + "Z",
-        "timings[lte]": end.isoformat(timespec="seconds") + "Z",
-        "relative[]": ["current", "upcoming"],
-        "geo[northEast][lat]": bbox["northEast"]["lat"],
-        "geo[northEast][lng]": bbox["northEast"]["lng"],
-        "geo[southWest][lat]": bbox["southWest"]["lat"],
-        "geo[southWest][lng]": bbox["southWest"]["lng"],
-        "monolingual": "fr",
-        "detailed": 1,
-        "size": 50,
-        "sort": "timings.asc",
-    }
-
-    url = f"{BASE_URL}/events"
-
-    try:
-        response = requests.get(
-            url,
-            headers={"key": API_KEY},
-            params=params,
-            timeout=10,
-        )
-    except requests.RequestException as e:
-        print("Erreur de connexion OpenAgenda:", e)
+    if not agendas_result:
         return jsonify({
             "status": "error",
-            "message": "Erreur de connexion à l'API OpenAgenda",
-            "details": str(e),
+            "message": "Impossible de récupérer la liste des agendas."
         }), 502
 
-    print("OpenAgenda status:", response.status_code)
-    try:
-        print("OpenAgenda body:", response.text[:500])
-    except Exception:
-        pass
-
-    if not response.ok:
+    agendas = agendas_result.get('agendas', [])
+    if not agendas:
         return jsonify({
-            "status": "error",
-            "message": "Erreur API OpenAgenda",
-            "httpStatus": response.status_code,
-            "details": response.text,
-        }), response.status_code
+            "status": "success",
+            "center": {"latitude": center_lat, "longitude": center_lon},
+            "radiusKm": RADIUS_KM,
+            "events": [],
+            "info": "Aucun agenda trouvé pour cette recherche."
+        }), 200
 
-    data = response.json()
-    events = data.get("events", [])
+    # 3. Récupération des événements agenda par agenda + filtrage rayon 30 km & 2 jours
+    all_events = []
 
-    simplified_events = []
-    for ev in events:
-        location = ev.get("location") or {}
-        timings = ev.get("timings") or []
-        first_timing = timings[0] if timings else {}
-
-        # Titre potentiellement multilingue
-        title_field = ev.get("title")
-        if isinstance(title_field, dict):
-            title = title_field.get("fr") or next(iter(title_field.values()), "")
+    for agenda in agendas:
+        uid = agenda.get('uid')
+        title = agenda.get('title', {})
+        if isinstance(title, dict):
+            agenda_title = title.get('fr') or title.get('en') or 'Agenda'
         else:
-            title = title_field or ""
-
-        slug = ev.get("slug")
-        openagenda_url = f"https://openagenda.com/e/{slug}" if slug else None
-
-        simplified_events.append({
-            "uid": ev.get("uid"),
-            "title": title,
-            "begin": first_timing.get("begin"),
-            "end": first_timing.get("end"),
-            "locationName": location.get("name"),
-            "city": location.get("city"),
-            "address": location.get("address"),
-            "latitude": location.get("latitude"),
-            "longitude": location.get("longitude"),
-            "openagendaUrl": openagenda_url,
-        })
-
-    return jsonify({
-        "status": "success",
-        "center": {"latitude": lat, "longitude": lon},
-        "radiusKm": RADIUS_KM,
-        "events": simplified_events,
-    }), 200
-
-
-# -------------------------------------------------
-# Entrée principale
-# -------------------------------------------------
-
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    print(f"Starting server on port {port}")
-    print(f"Using OpenAgenda BASE_URL={BASE_URL}")
-    app.run(host='0.0.0.0', port=port)
+            agenda_title = title or 'Agenda'
