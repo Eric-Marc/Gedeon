@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import math
@@ -23,7 +23,7 @@ BASE_URL = os.environ.get("OPENAGENDA_BASE_URL", "https://api.openagenda.com/v2"
 DEFAULT_CITY = os.environ.get("OPENAGENDA_CITY", "Toulouse")
 
 # Rayon et fenêtre de temps
-RADIUS_KM = 100           # <--- ici 100 km
+RADIUS_KM = 100           # 100 km
 DAYS_AHEAD = 2
 
 
@@ -54,7 +54,7 @@ def add_location(latitude, longitude, accuracy=None):
         "latitude": float(latitude),
         "longitude": float(longitude),
         "accuracy": float(accuracy) if accuracy is not None else None,
-        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
     locations.append(entry)
     save_locations(locations)
@@ -101,7 +101,7 @@ def search_agendas(search_term=None, official=None, limit=10):
 
 
 def get_events_from_agenda(agenda_uid, limit=50, city=None):
-    """Récupère les événements d'un agenda, comme dans ton script, avec `city[]`."""
+    """Récupère les événements d'un agenda, comme dans le script, avec `city[]`."""
     url = f"{BASE_URL}/agendas/{agenda_uid}/events"
 
     params = {
@@ -123,11 +123,16 @@ def get_events_from_agenda(agenda_uid, limit=50, city=None):
 
 
 def parse_iso_datetime(s):
-    """Parse une date ISO en datetime UTC."""
+    """Parse une date ISO en datetime UTC (offset-aware)."""
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.replace('Z', '+00:00'))
+        # remplace 'Z' par '+00:00' et parse un datetime aware
+        dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
+        # si jamais c'est naïf (au cas où), on le force en UTC
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except Exception:
         return None
 
@@ -198,7 +203,6 @@ def location_collection():
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)}), 500
 
-    # sécurité : si jamais un autre verbe arrive
     return jsonify({"status": "error", "message": "Méthode non supportée"}), 405
 
 
@@ -256,7 +260,8 @@ def events_nearby():
                 "message": "Coordonnées invalides."
             }), 500
 
-        now = datetime.utcnow()
+        # datetimes "aware" en UTC
+        now = datetime.now(timezone.utc)
         end = now + timedelta(days=DAYS_AHEAD)
 
         # 2. Recherche d'agendas comme ton script (ville "Toulouse" par défaut)
@@ -264,7 +269,6 @@ def events_nearby():
         agendas = agendas_result.get('agendas', []) if agendas_result else []
 
         if not agendas:
-            # On retourne quand même une réponse valide
             return jsonify({
                 "status": "success",
                 "center": {"latitude": center_lat, "longitude": center_lon},
@@ -302,7 +306,7 @@ def events_nearby():
                 if not begin_dt:
                     continue
 
-                # fenêtre de temps
+                # fenêtre de temps : tous les datetime sont "aware" (UTC)
                 if not (now <= begin_dt <= end):
                     continue
 
@@ -350,7 +354,6 @@ def events_nearby():
         # 4. Tri par date de début
         all_events.sort(key=lambda e: e["begin"] or "")
 
-        # 5. Réponse toujours renvoyée
         return jsonify({
             "status": "success",
             "center": {"latitude": center_lat, "longitude": center_lon},
@@ -361,7 +364,6 @@ def events_nearby():
         }), 200
 
     except Exception as e:
-        # En cas d'exception, on LOG et on RETOURNE quand même une réponse
         print("🔥 Error in /api/events/nearby:", repr(e))
         return jsonify({
             "status": "error",
