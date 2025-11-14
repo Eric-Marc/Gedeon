@@ -23,7 +23,7 @@ BASE_URL = os.environ.get("OPENAGENDA_BASE_URL", "https://api.openagenda.com/v2"
 DEFAULT_CITY = os.environ.get("OPENAGENDA_CITY", "Toulouse")
 
 # Rayon et fenêtre de temps
-RADIUS_KM = 30
+RADIUS_KM = 100          # <-- 100 km au lieu de 30
 DAYS_AHEAD = 2
 
 
@@ -106,7 +106,7 @@ def get_events_from_agenda(agenda_uid, limit=50, city=None):
     params = {
         "size": min(limit, 300),
         "detailed": 1,
-        "relative[]": "upcoming"   # comme ton script
+        "relative[]": "upcoming"
     }
     if city:
         params["city[]"] = city
@@ -125,7 +125,6 @@ def parse_iso_datetime(s):
     if not s:
         return None
     try:
-        # Comme dans ton script : remplacer Z par +00:00
         return datetime.fromisoformat(s.replace('Z', '+00:00'))
     except Exception:
         return None
@@ -214,17 +213,17 @@ def location_latest():
 
 
 # -------------------------------------------------
-# API : événements à proximité (multi-agendas, SANS /v2/events)
+# API : événements à proximité (multi-agendas)
 # -------------------------------------------------
 
 @app.route('/api/events/nearby', methods=['GET'])
 def events_nearby():
     """
-    Cherche des événements dans un rayon de 30 km autour du dernier point,
-    pour les 2 jours à venir, en utilisant UNIQUEMENT :
+    Cherche des événements dans un rayon de 100 km autour du dernier point,
+    pour les 2 jours à venir, en utilisant :
       - GET /v2/agendas
       - GET /v2/agendas/{uid}/events
-    comme dans find_toulouse_events.py, puis filtrage côté serveur.
+    puis filtrage côté serveur.
     """
 
     # 1. Dernier point de localisation
@@ -255,8 +254,7 @@ def events_nearby():
     now = datetime.utcnow()
     end = now + timedelta(days=DAYS_AHEAD)
 
-    # 2. Recherche d'agendas comme dans ton script (ville "Toulouse")
-    #    → multi-agendas, mais uniquement ceux reliés à la ville choisie.
+    # 2. Recherche d'agendas comme ton script (ville "Toulouse" par défaut)
     agendas_result = search_agendas(search_term=DEFAULT_CITY, limit=30)
 
     if not agendas_result:
@@ -275,7 +273,7 @@ def events_nearby():
             "info": "Aucun agenda trouvé pour cette recherche."
         }), 200
 
-    # 3. Récupération des événements agenda par agenda + filtrage rayon 30 km & 2 jours
+    # 3. Récupération des événements agenda par agenda + filtrage
     all_events = []
 
     for agenda in agendas:
@@ -285,3 +283,89 @@ def events_nearby():
             agenda_title = title.get('fr') or title.get('en') or 'Agenda'
         else:
             agenda_title = title or 'Agenda'
+
+        events_data = get_events_from_agenda(uid, limit=100, city=DEFAULT_CITY)
+        if not events_data:
+            continue
+
+        events = events_data.get('events', [])
+        for ev in events:
+            timings = ev.get('timings') or []
+            if not timings:
+                continue
+
+            first_timing = timings[0]
+            begin_str = first_timing.get('begin')
+            begin_dt = parse_iso_datetime(begin_str)
+            if not begin_dt:
+                continue
+
+            # fenêtre de temps
+            if not (now <= begin_dt <= end):
+                continue
+
+            loc = ev.get('location') or {}
+            ev_lat = loc.get('latitude')
+            ev_lon = loc.get('longitude')
+
+            if ev_lat is None or ev_lon is None:
+                continue
+
+            try:
+                ev_lat = float(ev_lat)
+                ev_lon = float(ev_lon)
+            except ValueError:
+                continue
+
+            dist = haversine_km(center_lat, center_lon, ev_lat, ev_lon)
+            if dist > RADIUS_KM:
+                continue
+
+            title_field = ev.get('title')
+            if isinstance(title_field, dict):
+                ev_title = title_field.get('fr') or title_field.get('en') or 'Événement'
+            else:
+                ev_title = title_field or 'Événement'
+
+            slug = ev.get('slug')
+            openagenda_url = f"https://openagenda.com/e/{slug}" if slug else None
+
+            all_events.append({
+                "uid": ev.get("uid"),
+                "title": ev_title,
+                "begin": begin_str,
+                "end": first_timing.get('end'),
+                "locationName": loc.get("name"),
+                "city": loc.get("city"),
+                "address": loc.get("address"),
+                "latitude": ev_lat,
+                "longitude": ev_lon,
+                "distanceKm": round(dist, 1),
+                "openagendaUrl": openagenda_url,
+                "agendaTitle": agenda_title,
+            })
+
+    # 4. Tri par date de début
+    all_events.sort(key=lambda e: e["begin"] or "")
+
+    return jsonify({
+        "status": "success",
+        "center": {"latitude": center_lat, "longitude": center_lon},
+        "radiusKm": RADIUS_KM,
+        "events": all_events,
+        "city": DEFAULT_CITY,
+        "count": len(all_events),
+    }), 200
+
+
+# -------------------------------------------------
+# Entrée principale
+# -------------------------------------------------
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    print(f"Starting server on port {port}")
+    print(f"OpenAgenda BASE_URL={BASE_URL}")
+    print(f"OpenAgenda city={DEFAULT_CITY}")
+    print(f"Radius = {RADIUS_KM} km")
+    app.run(host='0.0.0.0', port=port)
