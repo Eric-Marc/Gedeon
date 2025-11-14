@@ -1,361 +1,435 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Gedeon - Location Tracker</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phone Location Tracker</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-  <style>
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      margin: 0;
-      padding: 0;
-      background: #0f172a;
-      color: #e5e7eb;
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
-      min-height: 100vh;
-    }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
 
-    .container {
-      margin-top: 40px;
-      max-width: 600px;
-      width: 100%;
-      background: #020617;
-      border-radius: 16px;
-      padding: 24px;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
-      border: 1px solid #1f2937;
-    }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
 
-    h1 {
-      margin-top: 0;
-      font-size: 1.6rem;
-      margin-bottom: 4px;
-    }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
 
-    h2 {
-      font-size: 1.1rem;
-      margin-top: 24px;
-      margin-bottom: 8px;
-    }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
 
-    .subtitle {
-      font-size: 0.9rem;
-      color: #9ca3af;
-      margin-bottom: 16px;
-    }
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
 
-    .client-id {
-      font-family: "Fira Code", monospace;
-      font-size: 0.75rem;
-      word-break: break-all;
-      background: #020617;
-      border-radius: 8px;
-      padding: 8px;
-      border: 1px solid #1f2937;
-      margin-bottom: 12px;
-    }
+        .status.waiting {
+            background: #fef3c7;
+            color: #92400e;
+        }
 
-    button {
-      background: #1d4ed8;
-      border: none;
-      color: #e5e7eb;
-      padding: 10px 16px;
-      font-size: 0.9rem;
-      border-radius: 999px;
-      cursor: pointer;
-      margin: 4px 4px 8px 0;
-    }
+        .status.active {
+            background: #d1fae5;
+            color: #065f46;
+        }
 
-    button.secondary {
-      background: #374151;
-    }
+        .status.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
 
-    button.danger {
-      background: #b91c1c;
-    }
+        .location-info {
+            background: #f3f4f6;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
 
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+        .location-info h3 {
+            color: #374151;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
 
-    .status {
-      font-size: 0.85rem;
-      margin-top: 8px;
-      color: #9ca3af;
-      white-space: pre-line;
-    }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
 
-    .log {
-      margin-top: 12px;
-      padding: 8px;
-      border-radius: 8px;
-      background: #020617;
-      border: 1px solid #1f2937;
-      font-size: 0.8rem;
-      max-height: 200px;
-      overflow-y: auto;
-      white-space: pre-wrap;
-    }
+        .info-row:last-child {
+            border-bottom: none;
+        }
 
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 8px;
-      border-radius: 999px;
-      font-size: 0.75rem;
-      background: #0b1120;
-      border: 1px solid #1f2937;
-      color: #9ca3af;
-      margin-bottom: 6px;
-    }
+        .info-label {
+            color: #6b7280;
+            font-weight: 500;
+        }
 
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      background: #22c55e;
-    }
+        .info-value {
+            color: #111827;
+            font-family: monospace;
+        }
 
-    a {
-      color: #60a5fa;
-      text-decoration: none;
-    }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
 
-    a:hover {
-      text-decoration: underline;
-    }
-  </style>
+        button {
+            flex: 1;
+            padding: 15px 25px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(239, 68, 68, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .map-link {
+            display: inline-block;
+            margin-top: 10px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .map-link:hover {
+            text-decoration: underline;
+        }
+
+        .latest-map {
+            margin-top: 15px;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .latest-map iframe {
+            width: 100%;
+            height: 250px;
+            border: 0;
+        }
+
+        @media (max-width: 480px) {
+            .button-group {
+                flex-direction: column;
+            }
+        }
+    </style>
 </head>
 <body>
-<div class="container">
-  <h1>Gedeon - Tracker</h1>
-  <div class="subtitle">
-    Suivi de localisation simple, avec un identifiant unique par navigateur (client_id).
-  </div>
+    <div class="container">
+        <h1>📍 Phone Location Tracker</h1>
+        <p class="subtitle">
+            Envoie la position de ton téléphone au serveur et affiche le dernier point sur Google&nbsp;Maps.
+        </p>
 
-  <div class="badge">
-    <span class="dot"></span>
-    <span id="server-url"></span>
-  </div>
+        <div id="status" class="status waiting">
+            ⏳ En attente de démarrer le suivi...
+        </div>
 
-  <h2>Client ID (navigateur)</h2>
-  <div class="client-id" id="client-id">–</div>
+        <div class="button-group">
+            <button id="startBtn" class="btn-primary" onclick="startTracking()">Start Tracking</button>
+            <button id="stopBtn" class="btn-danger" onclick="stopTracking()" disabled>Stop Tracking</button>
+        </div>
 
-  <h2>Actions</h2>
-  <div>
-    <button id="btn-send-once">📍 Envoyer une position</button>
-    <button id="btn-start">▶️ Start tracking</button>
-    <button id="btn-stop" class="secondary" disabled>⏸ Stop tracking</button>
-    <button id="btn-latest" class="secondary">🔎 Dernière position</button>
-    <button id="btn-clear" class="danger">🧹 Clear MES positions</button>
-  </div>
+        <div class="button-group">
+            <button class="btn-secondary" onclick="sendOnce()">Send Once</button>
+            <!-- Ce bouton ne parle plus d'API mais du dernier point -->
+            <button class="btn-secondary" onclick="fetchLatestLocation()">Dernier point</button>
+        </div>
 
-  <div class="status" id="status">Prêt.</div>
+        <!-- Position actuelle du téléphone -->
+        <div id="locationInfo" class="location-info" style="display: none;">
+            <h3>Position actuelle</h3>
+            <div class="info-row">
+                <span class="info-label">Latitude :</span>
+                <span class="info-value" id="latitude">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Longitude :</span>
+                <span class="info-value" id="longitude">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Précision :</span>
+                <span class="info-value" id="accuracy">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Dernière mise à jour :</span>
+                <span class="info-value" id="timestamp">-</span>
+            </div>
+            <a id="mapLink" class="map-link" href="#" target="_blank">📍 Ouvrir cette position dans Google Maps</a>
+        </div>
 
-  <h2>Log</h2>
-  <div class="log" id="log"></div>
+        <!-- Dernier point enregistré côté serveur -->
+        <div id="latestLocationInfo" class="location-info" style="display: none;">
+            <h3>Dernier point enregistré</h3>
+            <div class="info-row">
+                <span class="info-label">Latitude :</span>
+                <span class="info-value" id="latestLatitude">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Longitude :</span>
+                <span class="info-value" id="latestLongitude">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Précision :</span>
+                <span class="info-value" id="latestAccuracy">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Enregistré le :</span>
+                <span class="info-value" id="latestTimestamp">-</span>
+            </div>
+            <a id="latestMapLink" class="map-link" href="#" target="_blank">📍 Voir le dernier point sur Google Maps</a>
 
-  <h2>API utiles</h2>
-  <div class="status">
-    - <code>GET /api/users</code> : liste des client_id et nombre de connexions<br>
-    - <code>GET /api/locations</code> : toutes les positions<br>
-    - <code>GET /api/location/latest</code> : dernière position<br>
-    - <code>DELETE /api/locations/clear</code> : effacer les positions de CE client_id
-  </div>
-</div>
+            <div class="latest-map">
+                <iframe
+                    id="latestMapFrame"
+                    loading="lazy"
+                    allowfullscreen
+                    referrerpolicy="no-referrer-when-downgrade">
+                </iframe>
+            </div>
+        </div>
+    </div>
 
-<script>
-  const SERVER_URL = window.location.origin;
+    <script>
+        let watchId = null;
+        let isTracking = false;
+        const SERVER_URL = window.location.origin;
 
-  // ---------------------------------------------------------------------------
-  // Gestion du client_id (identifiant unique par navigateur / profil)
-  // ---------------------------------------------------------------------------
-  function getOrCreateClientId() {
-    let id = localStorage.getItem('client_id');
-    if (!id) {
-      if (window.crypto && window.crypto.randomUUID) {
-        id = window.crypto.randomUUID();
-      } else {
-        id = Math.random().toString(36).slice(2) + Date.now().toString(36);
-      }
-      localStorage.setItem('client_id', id);
-      console.log('New client_id generated:', id);
-    } else {
-      console.log('Existing client_id:', id);
-    }
-    return id;
-  }
+        // On garde une fonction log, mais elle n'affiche plus de console "API" sur la page
+        function log(message, type = 'info') {
+            console.log(`[${type}] ${message}`);
+        }
 
-  const CLIENT_ID = getOrCreateClientId();
-  document.getElementById('client-id').textContent = CLIENT_ID;
-  document.getElementById('server-url').textContent = SERVER_URL;
+        function updateStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
 
-  const statusEl = document.getElementById('status');
-  const logEl = document.getElementById('log');
+        function updateLocationDisplay(position) {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            const acc = Math.round(position.coords.accuracy);
 
-  function setStatus(text) {
-    statusEl.textContent = text;
-    console.log('[STATUS]', text);
-  }
+            document.getElementById('latitude').textContent = lat.toFixed(6);
+            document.getElementById('longitude').textContent = lon.toFixed(6);
+            document.getElementById('accuracy').textContent = `${acc} meters`;
+            document.getElementById('timestamp').textContent = new Date().toLocaleString();
+            document.getElementById('mapLink').href = `https://www.google.com/maps?q=${lat},${lon}`;
+            document.getElementById('locationInfo').style.display = 'block';
+        }
 
-  function addLog(line) {
-    const ts = new Date().toISOString();
-    logEl.textContent = `[${ts}] ${line}\n` + logEl.textContent;
-  }
+        async function sendLocation(position) {
+            try {
+                const data = {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                    accuracy: position.coords.accuracy
+                };
 
-  // ---------------------------------------------------------------------------
-  // Ping serveur à chaque ouverture de page
-  // ---------------------------------------------------------------------------
-  async function pingServer() {
-    try {
-      await fetch(`${SERVER_URL}/api/ping`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          client_id: CLIENT_ID,
-          user_agent: navigator.userAgent
-        })
-      });
-      addLog('Ping envoyé au serveur.');
-    } catch (e) {
-      console.error('Ping error:', e);
-      addLog('Erreur ping serveur: ' + e);
-    }
-  }
+                const response = await fetch(`${SERVER_URL}/api/location`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
 
-  window.addEventListener('load', pingServer);
+                const result = await response.json();
 
-  // ---------------------------------------------------------------------------
-  // Envoi de la position
-  // ---------------------------------------------------------------------------
-  function getPosition(options = {}) {
-    return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        return reject(new Error("La géolocalisation n'est pas supportée."));
-      }
-      navigator.geolocation.getCurrentPosition(resolve, reject, options);
-    });
-  }
+                if (response.ok) {
+                    log(`Location sent successfully (±${Math.round(data.accuracy)}m)`, 'success');
+                    updateLocationDisplay(position);
+                    updateStatus('🟢 Suivi actif - position envoyée', 'active');
+                    // On met à jour aussi le dernier point enregistré
+                    fetchLatestLocation();
+                } else {
+                    log(`Error: ${result.error}`, 'error');
+                    updateStatus('🔴 Erreur lors de l\'envoi de la position', 'error');
+                }
+            } catch (error) {
+                log(`Network error: ${error.message}`, 'error');
+                updateStatus('🔴 Erreur réseau - vérifier la connexion au serveur', 'error');
+            }
+        }
 
-  async function sendLocationOnce() {
-    try {
-      setStatus('Demande de position...');
-      const pos = await getPosition({ enableHighAccuracy: true, timeout: 10000 });
+        function startTracking() {
+            if (!navigator.geolocation) {
+                updateStatus('🔴 Géolocalisation non supportée', 'error');
+                log('Geolocation is not supported by this browser', 'error');
+                return;
+            }
 
-      const payload = {
-        latitude: pos.coords.latitude,
-        longitude: pos.coords.longitude,
-        accuracy: pos.coords.accuracy,
-        client_id: CLIENT_ID
-      };
+            if (isTracking) return;
 
-      setStatus('Envoi de la position au serveur...');
-      const res = await fetch(`${SERVER_URL}/api/location`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+            isTracking = true;
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            updateStatus('🟡 Démarrage du suivi de position...', 'active');
+            log('Starting continuous location tracking...', 'info');
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Erreur HTTP');
-      }
+            watchId = navigator.geolocation.watchPosition(
+                sendLocation,
+                (error) => {
+                    log(`Location error: ${error.message}`, 'error');
+                    updateStatus('🔴 Accès à la localisation refusé ou indisponible', 'error');
+                },
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 0,
+                    timeout: 10000
+                }
+            );
+        }
 
-      setStatus('Position envoyée.');
-      addLog(`Position envoyée: lat=${payload.latitude}, lon=${payload.longitude}, acc=${payload.accuracy}m`);
-    } catch (e) {
-      console.error(e);
-      setStatus('Erreur: ' + e.message);
-      addLog('Erreur position: ' + e.message);
-    }
-  }
+        function stopTracking() {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
 
-  // ---------------------------------------------------------------------------
-  // Tracking continu (intervalle)
-  // ---------------------------------------------------------------------------
-  let trackingInterval = null;
+            isTracking = false;
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            updateStatus('⏸️ Suivi arrêté', 'waiting');
+            log('Tracking stopped', 'info');
+        }
 
-  function startTracking() {
-    if (trackingInterval) return;
-    setStatus('Tracking démarré (toutes les 30s)...');
-    addLog('Tracking démarré.');
-    trackingInterval = setInterval(sendLocationOnce, 30000);
-    sendLocationOnce();
-    document.getElementById('btn-start').disabled = true;
-    document.getElementById('btn-stop').disabled = false;
-  }
+        function sendOnce() {
+            if (!navigator.geolocation) {
+                updateStatus('🔴 Géolocalisation non supportée', 'error');
+                return;
+            }
 
-  function stopTracking() {
-    if (trackingInterval) {
-      clearInterval(trackingInterval);
-      trackingInterval = null;
-      setStatus('Tracking arrêté.');
-      addLog('Tracking arrêté.');
-      document.getElementById('btn-start').disabled = false;
-      document.getElementById('btn-stop').disabled = true;
-    }
-  }
+            updateStatus('🟡 Récupération de la position...', 'active');
+            log('Getting current location...', 'info');
 
-  // ---------------------------------------------------------------------------
-  // Récupérer la dernière position
-  // ---------------------------------------------------------------------------
-  async function fetchLatest() {
-    try {
-      const res = await fetch(`${SERVER_URL}/api/location/latest`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur HTTP');
+            navigator.geolocation.getCurrentPosition(
+                sendLocation,
+                (error) => {
+                    log(`Location error: ${error.message}`, 'error');
+                    updateStatus('🔴 Impossible de récupérer la position', 'error');
+                },
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 0,
+                    timeout: 10000
+                }
+            );
+        }
 
-      if (!data.location) {
-        setStatus(data.message || 'Aucune position enregistrée.');
-        addLog('Pas de position.');
-        return;
-      }
+        // NOUVELLE FONCTION : récupère le dernier point et l'affiche sur Google Maps
+        async function fetchLatestLocation() {
+            try {
+                const response = await fetch(`${SERVER_URL}/api/location/latest`);
+                const result = await response.json();
 
-      const loc = data.location;
-      setStatus('Dernière position chargée.');
-      addLog(`Dernière position: client_id=${loc.client_id} lat=${loc.latitude}, lon=${loc.longitude}, acc=${loc.accuracy}m`);
-    } catch (e) {
-      setStatus('Erreur: ' + e.message);
-      addLog('Erreur /api/location/latest: ' + e.message);
-    }
-  }
+                if (response.ok && result.status === 'success' && result.location) {
+                    const latest = result.location;
+                    const lat = latest.latitude;
+                    const lon = latest.longitude;
+                    const acc = latest.accuracy;
+                    const ts = latest.timestamp;
 
-  // ---------------------------------------------------------------------------
-  // Effacer les positions du client courant uniquement
-  // ---------------------------------------------------------------------------
-  async function clearLocations() {
-    if (!confirm('Effacer toutes MES positions (client_id courant) sur le serveur ?')) return;
-    try {
-      const res = await fetch(`${SERVER_URL}/api/locations/clear`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: CLIENT_ID })
-      });
+                    document.getElementById('latestLatitude').textContent = lat.toFixed(6);
+                    document.getElementById('latestLongitude').textContent = lon.toFixed(6);
+                    document.getElementById('latestAccuracy').textContent =
+                        acc !== undefined && acc !== null ? `${Math.round(acc)} meters` : '-';
+                    document.getElementById('latestTimestamp').textContent =
+                        ts ? new Date(ts).toLocaleString() : '-';
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur HTTP');
+                    const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
+                    document.getElementById('latestMapLink').href = mapsUrl;
+                    document.getElementById('latestMapFrame').src =
+                        `https://www.google.com/maps?q=${lat},${lon}&z=15&output=embed`;
 
-      setStatus(data.message || 'Positions effacées pour ce client_id.');
-      addLog(`Clear: ${data.removed ?? '?'} positions supprimées pour ce client_id.`);
-    } catch (e) {
-      setStatus('Erreur: ' + e.message);
-      addLog('Erreur clear locations: ' + e.message);
-    }
-  }
+                    document.getElementById('latestLocationInfo').style.display = 'block';
+                    updateStatus('🟢 Dernier point chargé', 'active');
+                    log('Latest location loaded', 'info');
+                } else {
+                    updateStatus('🟡 Aucun point enregistré pour le moment', 'waiting');
+                    document.getElementById('latestLocationInfo').style.display = 'none';
+                    log('No locations stored yet', 'info');
+                }
+            } catch (error) {
+                log(`Error fetching latest location: ${error.message}`, 'error');
+            }
+        }
 
-  // ---------------------------------------------------------------------------
-  // Wiring des boutons
-  // ---------------------------------------------------------------------------
-  document.getElementById('btn-send-once').addEventListener('click', sendLocationOnce);
-  document.getElementById('btn-start').addEventListener('click', startTracking);
-  document.getElementById('btn-stop').addEventListener('click', stopTracking);
-  document.getElementById('btn-latest').addEventListener('click', fetchLatest);
-  document.getElementById('btn-clear').addEventListener('click', clearLocations);
-</script>
+        // Au chargement de la page, on tente déjà d'afficher le dernier point
+        window.addEventListener('load', () => {
+            log('Location Tracker initialized', 'info');
+            log(`Server: ${SERVER_URL}`, 'info');
+            fetchLatestLocation();
+        });
+    </script>
 </body>
 </html>
