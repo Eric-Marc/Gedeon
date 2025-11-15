@@ -19,8 +19,7 @@ DATA_FILE = 'locations.json'
 API_KEY = os.environ.get("OPENAGENDA_API_KEY", "218909f158934e1badf3851a650ad6c1")
 BASE_URL = os.environ.get("OPENAGENDA_BASE_URL", "https://api.openagenda.com/v2")
 
-# Valeurs par défaut (si aucun paramètre n'est passé par le front)
-# On prend large pour couvrir toute la France
+# Valeurs par défaut (France entière)
 RADIUS_KM_DEFAULT = 300      # par défaut 300 km
 DAYS_AHEAD_DEFAULT = 7       # par défaut 7 jours
 
@@ -88,11 +87,11 @@ def get_headers():
 def search_agendas(search_term=None, official=None, limit=200):
     """
     Recherche d'agendas.
-    - Si search_term est None : agendas associés à la clé API (France entière
-      pour tous les agendas publics accessibles à cette clé).
+    - Si search_term est None : agendas associés à la clé API
+      (France entière pour CETTE clé, pas "tout OpenAgenda").
     """
     url = f"{BASE_URL}/agendas"
-    params = {"size": min(limit, 300)}  # on monte à 200+ pour couvrir large
+    params = {"size": min(limit, 300)}
 
     if search_term:
         params["search"] = search_term
@@ -111,8 +110,7 @@ def search_agendas(search_term=None, official=None, limit=200):
 def get_events_from_agenda(agenda_uid, limit=300):
     """
     Récupère les événements d'un agenda (current + upcoming),
-    sans filtre de ville => FRANCE ENTIÈRE, on filtrera après
-    par dates + distance au téléphone.
+    sans filtre de ville.
     """
     url = f"{BASE_URL}/agendas/{agenda_uid}/events"
 
@@ -289,21 +287,11 @@ def location_latest():
 def events_nearby():
     """
     Cherche des événements autour du dernier point de localisation du téléphone,
-    sur l'ensemble des agendas accessibles à la clé API (France entière).
+    sur l'ensemble des agendas accessibles à la clé API (France entière pour CETTE clé).
 
     Paramètres de requête (GET) :
       - radiusKm : rayon en kilomètres (float, optionnel)
       - days     : nombre de jours à venir (int, optionnel)
-
-    Pipeline :
-      - Récupère les agendas accessibles via l'API (sans filtre de ville)
-      - Récupère leurs événements (current + upcoming)
-      - Filtre par date : entre maintenant et maintenant + days
-      - Pour chaque événement :
-          * utilise location.latitude/longitude si présents
-          * sinon géocode l'adresse avec Nominatim
-          * calcule la distance au téléphone
-          * garde seulement ceux à <= radiusKm
     """
     try:
         # 0. Lecture des paramètres de filtrage
@@ -313,7 +301,7 @@ def events_nearby():
         radius_km = radius_param if (radius_param is not None and radius_param > 0) else RADIUS_KM_DEFAULT
         days_ahead = days_param if (days_param is not None and days_param >= 0) else DAYS_AHEAD_DEFAULT
 
-        # Rayon max pour éviter de partir sur des distances absurdes
+        # Rayon max (sécurité)
         if radius_km > 1000:
             radius_km = 1000.0
 
@@ -348,6 +336,14 @@ def events_nearby():
         # 2. Recherche d'agendas (France entière pour cette clé)
         agendas_result = search_agendas(limit=200)
         agendas = agendas_result.get('agendas', []) if agendas_result else []
+        total_agendas = len(agendas)
+
+        # stats debug
+        agendas_with_events = 0
+        total_events_scanned = 0
+        total_events_date_ok = 0
+        total_events_after_geo_and_radius = 0
+        min_distance = None
 
         if not agendas:
             return jsonify({
@@ -357,7 +353,15 @@ def events_nearby():
                 "days": days_ahead,
                 "events": [],
                 "count": 0,
-                "info": "Aucun agenda trouvé pour cette clé API."
+                "info": "Aucun agenda trouvé pour cette clé API.",
+                "debug": {
+                    "totalAgendas": 0,
+                    "agendasWithEvents": 0,
+                    "totalEventsScanned": 0,
+                    "totalEventsAfterDateFilter": 0,
+                    "totalEventsAfterDistanceFilter": 0,
+                    "minDistanceKm": None
+                }
             }), 200
 
         # 3. Récupération des événements agenda par agenda + filtrage par distance et date
@@ -374,8 +378,10 @@ def events_nearby():
 
             events_data = get_events_from_agenda(uid, limit=300)
             events = events_data.get('events', []) if events_data else []
-            if not events:
-                continue
+            total_events_scanned += len(events)
+
+            if events:
+                agendas_with_events += 1
 
             for ev in events:
                 timings = ev.get('timings') or []
@@ -385,12 +391,15 @@ def events_nearby():
                 first_timing = timings[0]
                 begin_str = first_timing.get('begin')
                 begin_dt = parse_iso_datetime(begin_str)
-                if not begin_dt:
-                    continue
 
-                # Filtre temporel : maintenant -> maintenant + days_ahead
-                if not (now <= begin_dt <= end):
-                    continue
+                if begin_dt is None:
+                    # date illisible => on ne filtre pas par date mais on compte
+                    total_events_date_ok += 1
+                else:
+                    # Filtre temporel : maintenant -> maintenant + days_ahead
+                    if not (now <= begin_dt <= end):
+                        continue
+                    total_events_date_ok += 1
 
                 loc = ev.get('location') or {}
                 ev_lat = loc.get('latitude')
@@ -405,7 +414,6 @@ def events_nearby():
                         parts.append(str(loc["address"]))
                     if loc.get("city"):
                         parts.append(str(loc["city"]))
-                    # on ajoute le pays pour aider Nominatim
                     parts.append("France")
                     address_str = ", ".join(parts)
 
@@ -424,8 +432,15 @@ def events_nearby():
                     continue
 
                 dist = haversine_km(center_lat, center_lon, ev_lat, ev_lon)
+
+                # mise à jour de la distance mini vue
+                if min_distance is None or dist < min_distance:
+                    min_distance = dist
+
                 if dist > radius_km:
                     continue
+
+                total_events_after_geo_and_radius += 1
 
                 title_field = ev.get('title')
                 if isinstance(title_field, dict):
@@ -458,6 +473,15 @@ def events_nearby():
         # Tri par date de début (texte ISO)
         all_events.sort(key=lambda e: e["begin"] or "")
 
+        debug_info = {
+            "totalAgendas": total_agendas,
+            "agendasWithEvents": agendas_with_events,
+            "totalEventsScanned": total_events_scanned,
+            "totalEventsAfterDateFilter": total_events_date_ok,
+            "totalEventsAfterDistanceFilter": total_events_after_geo_and_radius,
+            "minDistanceKm": round(min_distance, 1) if min_distance is not None else None
+        }
+
         return jsonify({
             "status": "success",
             "center": {"latitude": center_lat, "longitude": center_lon},
@@ -465,6 +489,7 @@ def events_nearby():
             "days": days_ahead,
             "events": all_events,
             "count": len(all_events),
+            "debug": debug_info,
         }), 200
 
     except Exception as e:
