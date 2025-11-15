@@ -20,8 +20,9 @@ API_KEY = os.environ.get("OPENAGENDA_API_KEY", "218909f158934e1badf3851a650ad6c1
 BASE_URL = os.environ.get("OPENAGENDA_BASE_URL", "https://api.openagenda.com/v2")
 
 # Valeurs par défaut (si aucun paramètre n'est passé par le front)
-RADIUS_KM_DEFAULT = 100
-DAYS_AHEAD_DEFAULT = 2
+# On prend large pour couvrir toute la France
+RADIUS_KM_DEFAULT = 300      # par défaut 300 km
+DAYS_AHEAD_DEFAULT = 7       # par défaut 7 jours
 
 # Cache simple en mémoire pour les géocodages Nominatim
 GEOCODE_CACHE = {}
@@ -84,13 +85,14 @@ def get_headers():
     }
 
 
-def search_agendas(search_term=None, official=None, limit=10):
+def search_agendas(search_term=None, official=None, limit=200):
     """
     Recherche d'agendas.
-    - Si search_term est None : agendas associés à la clé API (sans filtre de ville).
+    - Si search_term est None : agendas associés à la clé API (France entière
+      pour tous les agendas publics accessibles à cette clé).
     """
     url = f"{BASE_URL}/agendas"
-    params = {"size": min(limit, 100)}
+    params = {"size": min(limit, 300)}  # on monte à 200+ pour couvrir large
 
     if search_term:
         params["search"] = search_term
@@ -98,7 +100,7 @@ def search_agendas(search_term=None, official=None, limit=10):
         params["official"] = 1 if official else 0
 
     try:
-        r = requests.get(url, headers=get_headers(), params=params, timeout=10)
+        r = requests.get(url, headers=get_headers(), params=params, timeout=15)
         r.raise_for_status()
         return r.json() or {}
     except requests.exceptions.RequestException as e:
@@ -106,10 +108,11 @@ def search_agendas(search_term=None, official=None, limit=10):
         return {"agendas": []}
 
 
-def get_events_from_agenda(agenda_uid, limit=50):
+def get_events_from_agenda(agenda_uid, limit=300):
     """
     Récupère les événements d'un agenda (current + upcoming),
-    sans filtre de ville.
+    sans filtre de ville => FRANCE ENTIÈRE, on filtrera après
+    par dates + distance au téléphone.
     """
     url = f"{BASE_URL}/agendas/{agenda_uid}/events"
 
@@ -120,7 +123,7 @@ def get_events_from_agenda(agenda_uid, limit=50):
     }
 
     try:
-        r = requests.get(url, headers=get_headers(), params=params, timeout=10)
+        r = requests.get(url, headers=get_headers(), params=params, timeout=20)
         r.raise_for_status()
         return r.json() or {}
     except requests.exceptions.RequestException as e:
@@ -279,13 +282,14 @@ def location_latest():
 
 
 # -------------------------------------------------
-# API : événements à proximité (rayon / jours paramétrables)
+# API : événements à proximité (rayon / jours paramétrables, France entière)
 # -------------------------------------------------
 
 @app.route('/api/events/nearby', methods=['GET'])
 def events_nearby():
     """
-    Cherche des événements autour du dernier point de localisation du téléphone.
+    Cherche des événements autour du dernier point de localisation du téléphone,
+    sur l'ensemble des agendas accessibles à la clé API (France entière).
 
     Paramètres de requête (GET) :
       - radiusKm : rayon en kilomètres (float, optionnel)
@@ -308,6 +312,10 @@ def events_nearby():
 
         radius_km = radius_param if (radius_param is not None and radius_param > 0) else RADIUS_KM_DEFAULT
         days_ahead = days_param if (days_param is not None and days_param >= 0) else DAYS_AHEAD_DEFAULT
+
+        # Rayon max pour éviter de partir sur des distances absurdes
+        if radius_km > 1000:
+            radius_km = 1000.0
 
         now = datetime.now(timezone.utc)
         end = now + timedelta(days=days_ahead)
@@ -337,8 +345,8 @@ def events_nearby():
                 "message": "Coordonnées invalides."
             }), 500
 
-        # 2. Recherche d'agendas (sans filtre de ville)
-        agendas_result = search_agendas(limit=30)
+        # 2. Recherche d'agendas (France entière pour cette clé)
+        agendas_result = search_agendas(limit=200)
         agendas = agendas_result.get('agendas', []) if agendas_result else []
 
         if not agendas:
@@ -364,7 +372,7 @@ def events_nearby():
             else:
                 agenda_title = title or 'Agenda'
 
-            events_data = get_events_from_agenda(uid, limit=200)
+            events_data = get_events_from_agenda(uid, limit=300)
             events = events_data.get('events', []) if events_data else []
             if not events:
                 continue
