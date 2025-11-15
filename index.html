@@ -231,7 +231,7 @@
     <h1>📍 Localisation & événements à proximité</h1>
     <p class="subtitle">
         Le site enregistre la position de ton téléphone, puis affiche les événements OpenAgenda
-        autour de ce point, dans un rayon et une fenêtre de temps que tu peux régler.
+        en France entière, filtrés par distance autour de ce point et par date.
     </p>
 
     <div id="status" class="status waiting">
@@ -294,7 +294,7 @@
                     referrerpolicy="no-referrer-when-downgrade"></iframe>
         </div>
         <p class="hint">
-            Les événements ci-dessous sont recherchés autour de ce point.
+            Les événements ci-dessous sont recherchés autour de ce point, sur l'ensemble de la France.
         </p>
     </div>
 
@@ -305,16 +305,16 @@
         <!-- Curseurs de réglage -->
         <div class="slider-row">
             <label>
-                Rayon : <strong><span id="radiusValue">100</span> km</strong>
+                Rayon : <strong><span id="radiusValue">300</span> km</strong>
             </label>
-            <input type="range" id="radiusRange" min="5" max="200" step="5" value="100">
+            <input type="range" id="radiusRange" min="10" max="1000" step="10" value="300">
         </div>
 
         <div class="slider-row">
             <label>
-                Fenêtre de temps : <strong>aujourd'hui + <span id="daysValue">2</span> jour(s)</strong>
+                Fenêtre de temps : <strong>aujourd'hui + <span id="daysValue">7</span> jour(s)</strong>
             </label>
-            <input type="range" id="daysRange" min="1" max="30" step="1" value="2">
+            <input type="range" id="daysRange" min="1" max="30" step="1" value="7">
         </div>
 
         <!-- résumé : nombre d'événements trouvés -->
@@ -342,8 +342,8 @@
     const SERVER_URL = window.location.origin;
 
     // valeurs courantes des curseurs
-    let currentRadiusKm = 100;
-    let currentDays = 2;
+    let currentRadiusKm = 300;
+    let currentDays = 7;
 
     function updateStatus(message, type) {
         const div = document.getElementById('status');
@@ -490,7 +490,7 @@
             updateStatus('🟢 Dernier point chargé', 'active');
 
             if (updateEvents) {
-                // on pourrait auto-lancer un fetch ici, mais on laisse au bouton/curseurs
+                fetchNearbyEvents();
             }
         } catch (e) {
             console.error(e);
@@ -617,7 +617,7 @@
             });
 
             section.style.display = 'block';
-            updateStatus('🟢 Événements à proximité chargés', 'active');
+            updateStatus('🟢 Événements à proximité chargés (France entière)', 'active');
         } catch (e) {
             console.error(e);
             updateStatus('🔴 Erreur lors du chargement des événements à proximité', 'error');
