@@ -370,6 +370,17 @@
         };
     }
 
+    // Helper pour calculer "du ... au ..." à partir d'aujourd'hui
+    function getDateRangeTextFromNow(days) {
+        const today = new Date();
+        const end = new Date();
+        end.setDate(today.getDate() + days);
+        return {
+            start: today.toLocaleDateString('fr-FR'),
+            end: end.toLocaleDateString('fr-FR')
+        };
+    }
+
     // 🔹 Init : au démarrage on attend la position du téléphone
     function initGeolocationOnLoad() {
         if (!navigator.geolocation) {
@@ -411,7 +422,6 @@
         const city = CITY_COORDS[cityKey];
         if (!city) return;
 
-        // 👉 Message demandé : "recherche des événements sur Paris/Toulouse"
         updateStatus(`🔍 Recherche des événements sur ${city.label}…`, 'active');
 
         const fakePos = makeFakePosition(city.latitude, city.longitude);
@@ -430,7 +440,13 @@
                 return;
             }
 
-            updateStatus('🟡 Chargement des événements à proximité…', 'active');
+            // Affiche rayon + dates dans le message de chargement
+            const loadingRange = getDateRangeTextFromNow(currentDays);
+            updateStatus(
+                `🟡 Chargement des événements dans un rayon de ${currentRadiusKm} km, ` +
+                `du ${loadingRange.start} au ${loadingRange.end}…`,
+                'active'
+            );
 
             const lat = position.coords.latitude;
             const lon = position.coords.longitude;
@@ -468,19 +484,23 @@
             const days = result.days ?? currentDays;
             const count = result.count ?? events.length;
 
+            // Recalcule le "du ... au ..." avec la valeur retournée par l'API
+            const range = getDateRangeTextFromNow(days);
+
             if (events.length === 0) {
                 section.style.display = 'block';
                 empty.style.display = 'block';
                 updateStatus(
-                    `🟡 Aucun événement trouvé dans les ${radiusKm} km pour les ${days} jour(s) à venir`,
+                    `🟡 Aucun événement trouvé dans un rayon de ${radiusKm} km, ` +
+                    `du ${range.start} au ${range.end}`,
                     'waiting'
                 );
                 return;
             }
 
             summary.textContent =
-                `${count} événement(s) trouvé(s) dans un rayon de ${radiusKm} km ` +
-                `pour les ${days} jour(s) à venir.`;
+                `${count} événement(s) trouvé(s) dans un rayon de ${radiusKm} km, ` +
+                `du ${range.start} au ${range.end}.`;
             summary.style.display = 'block';
 
             events.forEach((ev, index) => {
@@ -554,7 +574,10 @@
             });
 
             section.style.display = 'block';
-            updateStatus('🟢 Événements à proximité chargés', 'active');
+            updateStatus(
+                `🟢 Événements chargés dans un rayon de ${radiusKm} km, du ${range.start} au ${range.end}.`,
+                'active'
+            );
         } catch (e) {
             console.error(e);
             updateStatus('🔴 Erreur lors du chargement des événements à proximité', 'error');
