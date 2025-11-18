@@ -230,23 +230,16 @@
 <div class="container">
     <h1>📍 Localisation & événements à proximité</h1>
     <p class="subtitle">
-        Le site enregistre la position de ton téléphone, puis affiche les événements OpenAgenda
-        en France entière, filtrés par distance autour de ce point et par date.
+        Le site utilise la position actuelle de ton téléphone pour afficher les événements OpenAgenda
+        en France entière, filtrés par distance et par date.
     </p>
 
     <div id="status" class="status waiting">
-        ⏳ En attente de démarrer le suivi…
+        ⏳ En attente de recherche d'événements…
     </div>
 
     <div class="button-group">
-        <button id="startBtn" class="btn-primary"   onclick="startTracking()">Démarrer le suivi</button>
-        <button id="stopBtn"  class="btn-danger"    onclick="stopTracking()" disabled>Arrêter le suivi</button>
-    </div>
-
-    <div class="button-group">
-        <button class="btn-secondary" onclick="sendOnce()">Envoyer une seule fois</button>
-        <button class="btn-secondary" onclick="fetchLatestLocation()">Dernier point</button>
-        <button class="btn-secondary" onclick="fetchNearbyEvents()">Événements à proximité</button>
+        <button class="btn-primary" onclick="fetchNearbyEventsWithCurrentPosition()">Événements à proximité</button>
     </div>
 
     <!-- Position actuelle (téléphone) -->
@@ -268,34 +261,6 @@
         <a id="currentMapLink" class="map-link" href="#" target="_blank" rel="noopener noreferrer">
             📍 Ouvrir cette position dans Google Maps
         </a>
-    </div>
-
-    <!-- Dernier point enregistré -->
-    <div class="section" id="latestLocationSection" style="display:none;">
-        <h2>Dernier point enregistré</h2>
-        <div class="info-grid">
-            <div class="info-label">Latitude</div>
-            <div class="info-value" id="latestLatitude">-</div>
-
-            <div class="info-label">Longitude</div>
-            <div class="info-value" id="latestLongitude">-</div>
-
-            <div class="info-label">Précision</div>
-            <div class="info-value" id="latestAccuracy">-</div>
-
-            <div class="info-label">Enregistré le</div>
-            <div class="info-value" id="latestTimestamp">-</div>
-        </div>
-        <a id="latestMapLink" class="map-link" href="#" target="_blank" rel="noopener noreferrer">
-            📍 Voir ce point dans Google Maps
-        </a>
-        <div class="map-container">
-            <iframe id="latestMapFrame" loading="lazy" allowfullscreen
-                    referrerpolicy="no-referrer-when-downgrade"></iframe>
-        </div>
-        <p class="hint">
-            Les événements ci-dessous sont recherchés autour de ce point, sur l'ensemble de la France.
-        </p>
     </div>
 
     <!-- Événements à proximité -->
@@ -337,13 +302,12 @@
 </div>
 
 <script>
-    let watchId = null;
-    let isTracking = false;
     const SERVER_URL = window.location.origin;
 
     // valeurs courantes des curseurs
     let currentRadiusKm = 300;
     let currentDays = 7;
+    let currentPosition = null; // Stocke la position actuelle
 
     function updateStatus(message, type) {
         const div = document.getElementById('status');
@@ -369,82 +333,20 @@
         document.getElementById('currentLocationSection').style.display = 'block';
     }
 
-    async function sendLocation(position) {
-        updateCurrentLocationDisplay(position);
-
-        const data = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy
-        };
-
-        try {
-            const res = await fetch(`${SERVER_URL}/api/location`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-
-            const result = await res.json();
-            if (res.ok && result.status === 'success') {
-                updateStatus('🟢 Position envoyée au serveur', 'active');
-                fetchLatestLocation(false);
-            } else {
-                console.error(result);
-                updateStatus('🔴 Erreur lors de l\'envoi de la position', 'error');
-            }
-        } catch (e) {
-            console.error(e);
-            updateStatus('🔴 Erreur réseau lors de l\'envoi de la position', 'error');
-        }
-    }
-
-    function startTracking() {
+    async function fetchNearbyEventsWithCurrentPosition() {
         if (!navigator.geolocation) {
             updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
             return;
         }
-        if (isTracking) return;
 
-        isTracking = true;
-        document.getElementById('startBtn').disabled = true;
-        document.getElementById('stopBtn').disabled = false;
-        updateStatus('🟡 Démarrage du suivi de position…', 'active');
-
-        watchId = navigator.geolocation.watchPosition(
-            sendLocation,
-            (error) => {
-                console.error(error);
-                updateStatus('🔴 Erreur de géolocalisation : ' + error.message, 'error');
-            },
-            {
-                enableHighAccuracy: true,
-                maximumAge: 0,
-                timeout: 10000
-            }
-        );
-    }
-
-    function stopTracking() {
-        if (watchId != null) {
-            navigator.geolocation.clearWatch(watchId);
-            watchId = null;
-        }
-        isTracking = false;
-        document.getElementById('startBtn').disabled = false;
-        document.getElementById('stopBtn').disabled = true;
-        updateStatus('⏸️ Suivi arrêté', 'waiting');
-    }
-
-    function sendOnce() {
-        if (!navigator.geolocation) {
-            updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
-            return;
-        }
-        updateStatus('🟡 Récupération de la position…', 'active');
+        updateStatus('🟡 Récupération de votre position...', 'active');
 
         navigator.geolocation.getCurrentPosition(
-            sendLocation,
+            async (position) => {
+                currentPosition = position;
+                updateCurrentLocationDisplay(position);
+                await fetchNearbyEvents(position);
+            },
             (error) => {
                 console.error(error);
                 updateStatus('🔴 Erreur de géolocalisation : ' + error.message, 'error');
@@ -457,54 +359,23 @@
         );
     }
 
-    async function fetchLatestLocation(updateEvents = true) {
+    async function fetchNearbyEvents(position) {
         try {
-            const res = await fetch(`${SERVER_URL}/api/location/latest`);
-            const result = await res.json();
-
-            if (!res.ok || result.status !== 'success') {
-                updateStatus('🟡 Aucun point enregistré pour le moment', 'waiting');
-                document.getElementById('latestLocationSection').style.display = 'none';
+            if (!position) {
+                updateStatus('🔴 Position non disponible', 'error');
                 return;
             }
 
-            const loc = result.location;
-            const lat = loc.latitude;
-            const lon = loc.longitude;
-            const acc = loc.accuracy;
-            const ts = loc.timestamp;
-
-            document.getElementById('latestLatitude').textContent = lat.toFixed(6);
-            document.getElementById('latestLongitude').textContent = lon.toFixed(6);
-            document.getElementById('latestAccuracy').textContent =
-                acc != null ? Math.round(acc) + ' m' : '-';
-            document.getElementById('latestTimestamp').textContent =
-                ts ? new Date(ts).toLocaleString() : '-';
-
-            const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
-            document.getElementById('latestMapLink').href = mapsUrl;
-            document.getElementById('latestMapFrame').src =
-                `https://www.google.com/maps?q=${lat},${lon}&z=10&output=embed`;
-
-            document.getElementById('latestLocationSection').style.display = 'block';
-            updateStatus('🟢 Dernier point chargé', 'active');
-
-            if (updateEvents) {
-                fetchNearbyEvents();
-            }
-        } catch (e) {
-            console.error(e);
-            updateStatus('🔴 Erreur lors de la récupération du dernier point', 'error');
-        }
-    }
-
-    async function fetchNearbyEvents() {
-        try {
             updateStatus('🟡 Chargement des événements à proximité…', 'active');
 
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+
             const params = new URLSearchParams();
-            if (currentRadiusKm) params.append('radiusKm', currentRadiusKm);
-            if (currentDays) params.append('days', currentDays);
+            params.append('lat', lat);
+            params.append('lon', lon);
+            params.append('radiusKm', currentRadiusKm);
+            params.append('days', currentDays);
 
             const res = await fetch(`${SERVER_URL}/api/events/nearby?` + params.toString());
             const result = await res.json();
@@ -619,7 +490,7 @@
             });
 
             section.style.display = 'block';
-            updateStatus('🟢 Événements à proximité chargés (France entière)', 'active');
+            updateStatus('🟢 Événements à proximité chargés', 'active');
         } catch (e) {
             console.error(e);
             updateStatus('🔴 Erreur lors du chargement des événements à proximité', 'error');
@@ -635,19 +506,22 @@
         radiusRange.addEventListener('input', () => {
             currentRadiusKm = parseInt(radiusRange.value, 10);
             radiusValue.textContent = currentRadiusKm;
-            fetchNearbyEvents();
+            if (currentPosition) {
+                fetchNearbyEvents(currentPosition);
+            }
         });
 
         daysRange.addEventListener('input', () => {
             currentDays = parseInt(daysRange.value, 10);
             daysValue.textContent = currentDays;
-            fetchNearbyEvents();
+            if (currentPosition) {
+                fetchNearbyEvents(currentPosition);
+            }
         });
     }
 
     window.addEventListener('load', () => {
         setupSliders();
-        fetchLatestLocation(false);
     });
 </script>
 </body>
