@@ -384,7 +384,7 @@
         };
     }
 
-    // 🔹 Init : au démarrage on attend la position du téléphone
+    // 🔹 Init : au démarrage on essaie déjà d'obtenir la position (optionnel mais pratique)
     function initGeolocationOnLoad() {
         if (!navigator.geolocation) {
             updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
@@ -412,14 +412,32 @@
         );
     }
 
-    // 🔹 Bouton "Événements à proximité" = position du téléphone
+    // 🔹 Bouton "Événements à proximité" = toujours position du téléphone (nouvelle géoloc)
     async function fetchNearbyEventsWithCurrentPosition() {
-        if (!currentPosition) {
-            updateStatus('🟡 Position non encore disponible. Merci de patienter quelques secondes…', 'waiting');
+        if (!navigator.geolocation) {
+            updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
             return;
         }
-        currentContextLabel = 'GPS';
-        await fetchNearbyEvents(currentPosition);
+
+        updateStatus('🟡 Recherche de la position du téléphone…', 'active');
+
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                currentPosition = position;
+                currentContextLabel = 'GPS';
+                updateCurrentLocationDisplay(position);
+                await fetchNearbyEvents(position);
+            },
+            (error) => {
+                console.error(error);
+                updateStatus('🔴 Erreur de géolocalisation : ' + error.message, 'error');
+            },
+            {
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: 10000
+            }
+        );
     }
 
     // 🔹 Boutons Paris / Toulouse
@@ -631,7 +649,7 @@
 
     window.addEventListener('load', () => {
         setupSliders();
-        initGeolocationOnLoad(); // géoloc automatique au démarrage
+        initGeolocationOnLoad(); // géoloc automatique au démarrage (optionnel)
     });
 </script>
 </body>
