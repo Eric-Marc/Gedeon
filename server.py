@@ -1,528 +1,597 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8" />
-    <title>Localisation & événements OpenAgenda</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+from datetime import datetime, timezone, timedelta
+import json
+import os
+import math
+import requests
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
+# -------------------------------------------------
+# Configuration de l'application
+# -------------------------------------------------
 
-        .container {
-            max-width: 960px;
-            margin: 0 auto;
-            background: #ffffff;
-            border-radius: 20px;
-            padding: 24px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-        }
+app = Flask(__name__, static_folder='.', static_url_path='')
+CORS(app)
 
-        h1 {
-            font-size: 26px;
-            margin-bottom: 6px;
-            color: #111827;
-        }
+DATA_FILE = 'locations.json'
 
-        .subtitle {
-            color: #6b7280;
-            font-size: 14px;
-            margin-bottom: 18px;
-        }
+# === OpenAgenda ===
+API_KEY = os.environ.get("OPENAGENDA_API_KEY", "218909f158934e1badf3851a650ad6c1")
+BASE_URL = os.environ.get("OPENAGENDA_BASE_URL", "https://api.openagenda.com/v2")
 
-        .status {
-            padding: 12px 15px;
-            border-radius: 10px;
-            margin-bottom: 16px;
-            font-size: 14px;
-            font-weight: 500;
-        }
+# Valeurs par défaut (France entière)
+RADIUS_KM_DEFAULT = 300      # par défaut 300 km
+DAYS_AHEAD_DEFAULT = 7       # par défaut 7 jours
 
-        .status.waiting { background: #fef3c7; color: #92400e; }
-        .status.active  { background: #d1fae5; color: #065f46; }
-        .status.error   { background: #fee2e2; color: #991b1b; }
+# Cache simple en mémoire pour les géocodages Nominatim
+GEOCODE_CACHE = {}
 
-        .button-group {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-bottom: 16px;
-        }
 
-        button {
-            flex: 1;
-            min-width: 150px;
-            border: none;
-            border-radius: 10px;
-            padding: 11px 16px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
+# -------------------------------------------------
+# Fonctions utilitaires : stockage des positions
+# -------------------------------------------------
 
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none !important;
-            box-shadow: none !important;
-        }
+def load_locations():
+    """Charge la liste des positions depuis un fichier JSON local."""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+    return []
 
-        .btn-primary   { background: #4f46e5; color: #ffffff; }
-        .btn-secondary { background: #10b981; color: #ffffff; }
-        .btn-danger    { background: #ef4444; color: #ffffff; }
 
-        .btn-primary:hover:not(:disabled) {
-            background: #4338ca;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 10px rgba(79, 70, 229, 0.4);
-        }
+def save_locations(locations):
+    """Sauvegarde la liste des positions dans un fichier JSON local."""
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(locations, f, ensure_ascii=False, indent=2)
 
-        .btn-secondary:hover:not(:disabled) {
-            background: #059669;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 10px rgba(16, 185, 129, 0.4);
-        }
 
-        .btn-danger:hover:not(:disabled) {
-            background: #dc2626;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 10px rgba(239, 68, 68, 0.4);
-        }
+def add_location(latitude, longitude, accuracy=None):
+    """Ajoute une position (téléphone) dans l'historique."""
+    locations = load_locations()
+    entry = {
+        "latitude": float(latitude),
+        "longitude": float(longitude),
+        "accuracy": float(accuracy) if accuracy is not None else None,
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+    }
+    locations.append(entry)
+    save_locations(locations)
+    return entry
 
-        .section {
-            background: #f9fafb;
-            border-radius: 14px;
-            padding: 14px 16px;
-            margin-bottom: 14px;
-        }
 
-        .section h2 {
-            font-size: 16px;
-            margin-bottom: 8px;
-            color: #111827;
-        }
+def get_latest_location():
+    """Retourne la dernière position enregistrée (ou None)."""
+    locations = load_locations()
+    if not locations:
+        return None
+    return locations[-1]
 
-        .info-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 6px 10px;
-            font-size: 13px;
-        }
 
-        .info-label { color: #6b7280; }
-        .info-value { color: #111827; font-family: monospace; text-align: right; }
+# -------------------------------------------------
+# Fonctions utilitaires : calculs géographiques
+# -------------------------------------------------
 
-        .map-container {
-            margin-top: 9px;
-            border-radius: 10px;
-            overflow: hidden;
-            border: 1px solid #e5e7eb;
-        }
+def calculate_bounding_box(lat, lng, radius_km):
+    """
+    Calculate bounding box coordinates from a center point and radius.
 
-        .map-container iframe {
-            width: 100%;
-            height: 260px;
-            border: 0;
-        }
+    Args:
+        lat: Center latitude
+        lng: Center longitude
+        radius_km: Radius in kilometers
 
-        .map-link {
-            display: inline-block;
-            margin-top: 6px;
-            font-size: 13px;
-            text-decoration: none;
-            color: #4f46e5;
-            font-weight: 500;
-        }
+    Returns:
+        Dictionary with northEast and southWest coordinates
+    """
+    # Earth's radius in kilometers
+    EARTH_RADIUS_KM = 6371.0
 
-        .map-link:hover { text-decoration: underline; }
+    # Convert radius to radians
+    radius_rad = radius_km / EARTH_RADIUS_KM
 
-        .events-list {
-            list-style: none;
-            margin-top: 10px;
-        }
+    # Convert lat/lng to radians
+    lat_rad = math.radians(lat)
+    lng_rad = math.radians(lng)
 
-        .event-item {
-            background: #ffffff;
-            border-radius: 10px;
-            padding: 9px 11px;
-            margin-bottom: 10px;
-            border: 1px solid #e5e7eb;
-        }
+    # Calculate latitude bounds
+    lat_delta = math.degrees(radius_rad)
+    min_lat = lat - lat_delta
+    max_lat = lat + lat_delta
 
-        .event-title {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 4px;
-            color: #111827;
-        }
+    # Calculate longitude bounds (accounting for latitude)
+    lng_delta = math.degrees(radius_rad / math.cos(lat_rad))
+    min_lng = lng - lng_delta
+    max_lng = lng + lng_delta
 
-        .event-meta {
-            font-size: 12px;
-            color: #6b7280;
-            margin-bottom: 5px;
-        }
-
-        .event-links {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-bottom: 5px;
-        }
-
-        .event-link {
-            font-size: 12px;
-            text-decoration: none;
-            color: #2563eb;
-        }
-
-        .event-link:hover {
-            text-decoration: underline;
-        }
-
-        .event-map {
-            border-radius: 8px;
-            overflow: hidden;
-            border: 1px solid #e5e7eb;
-            margin-top: 4px;
-        }
-
-        .event-map iframe {
-            width: 100%;
-            height: 180px;
-            border: 0;
-        }
-
-        .hint {
-            font-size: 12px;
-            color: #6b7280;
-            margin-top: 4px;
-        }
-
-        .slider-row {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            margin-bottom: 8px;
-        }
-
-        .slider-row label {
-            font-size: 13px;
-            color: #374151;
-        }
-
-        .slider-row input[type=range] {
-            width: 100%;
-        }
-
-        @media (max-width: 640px) {
-            .info-grid { grid-template-columns: 1fr; }
-            .info-value { text-align: left; }
-        }
-    </style>
-</head>
-<body>
-<div class="container">
-    <h1>📍 Localisation & événements à proximité</h1>
-    <p class="subtitle">
-        Le site utilise la position actuelle de ton téléphone pour afficher les événements OpenAgenda
-        en France entière, filtrés par distance et par date.
-    </p>
-
-    <div id="status" class="status waiting">
-        ⏳ En attente de recherche d'événements…
-    </div>
-
-    <div class="button-group">
-        <button class="btn-primary" onclick="fetchNearbyEventsWithCurrentPosition()">Événements à proximité</button>
-    </div>
-
-    <!-- Position actuelle (téléphone) -->
-    <div class="section" id="currentLocationSection" style="display:none;">
-        <h2>Position actuelle (téléphone)</h2>
-        <div class="info-grid">
-            <div class="info-label">Latitude</div>
-            <div class="info-value" id="currentLatitude">-</div>
-
-            <div class="info-label">Longitude</div>
-            <div class="info-value" id="currentLongitude">-</div>
-
-            <div class="info-label">Précision</div>
-            <div class="info-value" id="currentAccuracy">-</div>
-
-            <div class="info-label">Dernière mise à jour</div>
-            <div class="info-value" id="currentTimestamp">-</div>
-        </div>
-        <a id="currentMapLink" class="map-link" href="#" target="_blank" rel="noopener noreferrer">
-            📍 Ouvrir cette position dans Google Maps
-        </a>
-    </div>
-
-    <!-- Événements à proximité -->
-    <div class="section" id="eventsSection" style="display:none;">
-        <h2>Événements à proximité</h2>
-
-        <!-- Curseurs de réglage -->
-        <div class="slider-row">
-            <label>
-                Rayon : <strong><span id="radiusValue">300</span> km</strong>
-            </label>
-            <input type="range" id="radiusRange" min="10" max="1000" step="10" value="300">
-        </div>
-
-        <div class="slider-row">
-            <label>
-                Fenêtre de temps : <strong>aujourd'hui + <span id="daysValue">7</span> jour(s)</strong>
-            </label>
-            <input type="range" id="daysRange" min="1" max="30" step="1" value="7">
-        </div>
-
-        <!-- résumé : nombre d'événements trouvés -->
-        <p id="eventsSummary"
-           style="display:none; font-size:13px; color:#111827; font-weight:500; margin-bottom:6px;">
-        </p>
-
-        <p id="eventsEmpty" style="display:none; font-size:13px; color:#6b7280; margin-bottom:8px;">
-            Aucun événement trouvé dans ce périmètre pour la période choisie.
-        </p>
-
-        <!-- liste des événements trouvés -->
-        <ul id="eventsList" class="events-list"></ul>
-
-        <p class="hint">
-            Chaque événement affiché possède un lien vers OpenAgenda et Google&nbsp;Maps,
-            et une petite carte intégrée quand les coordonnées sont disponibles.
-        </p>
-    </div>
-</div>
-
-<script>
-    const SERVER_URL = window.location.origin;
-
-    // valeurs courantes des curseurs
-    let currentRadiusKm = 300;
-    let currentDays = 7;
-    let currentPosition = null; // Stocke la position actuelle
-
-    function updateStatus(message, type) {
-        const div = document.getElementById('status');
-        div.textContent = message;
-        div.className = 'status ' + type;
+    return {
+        'northEast': {'lat': max_lat, 'lng': max_lng},
+        'southWest': {'lat': min_lat, 'lng': min_lng}
     }
 
-    function updateCurrentLocationDisplay(position) {
-        const lat = position.coords.latitude;
-        const lon = position.coords.longitude;
-        const acc = position.coords.accuracy;
 
-        document.getElementById('currentLatitude').textContent = lat.toFixed(6);
-        document.getElementById('currentLongitude').textContent = lon.toFixed(6);
-        document.getElementById('currentAccuracy').textContent =
-            acc != null ? Math.round(acc) + ' m' : '-';
-        document.getElementById('currentTimestamp').textContent =
-            new Date().toLocaleString();
+def haversine_km(lat1, lon1, lat2, lon2):
+    """Distance en km entre deux points (latitude/longitude)."""
+    R = 6371.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
 
-        const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
-        document.getElementById('currentMapLink').href = mapsUrl;
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
 
-        document.getElementById('currentLocationSection').style.display = 'block';
+
+# -------------------------------------------------
+# Fonctions utilitaires : OpenAgenda
+# -------------------------------------------------
+
+def search_agendas(search_term=None, official=None, limit=200):
+    """
+    Recherche d'agendas.
+    - Si search_term est None : agendas associés à la clé API
+      (France entière pour CETTE clé, pas "tout OpenAgenda").
+    """
+    url = f"{BASE_URL}/agendas"
+    params = {
+        "key": API_KEY,  # CORRECTION: La clé doit être dans les paramètres, pas les en-têtes
+        "size": min(limit, 300)
     }
 
-    async function fetchNearbyEventsWithCurrentPosition() {
-        if (!navigator.geolocation) {
-            updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
-            return;
+    if search_term:
+        params["search"] = search_term
+    if official is not None:
+        params["official"] = 1 if official else 0
+
+    try:
+        r = requests.get(url, params=params, timeout=15)
+        r.raise_for_status()
+        return r.json() or {}
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error searching agendas: {e}")
+        return {"agendas": []}
+
+
+def get_events_from_agenda(agenda_uid, center_lat, center_lon, radius_km, days_ahead, limit=300):
+    """
+    Récupère les événements d'un agenda avec filtrage géographique et temporel via l'API.
+    
+    CORRECTION MAJEURE: Utilise les paramètres geo[] et timings[] pour filtrer via l'API
+    comme dans find_events.py
+    """
+    url = f"{BASE_URL}/agendas/{agenda_uid}/events"
+
+    # Calculate bounding box
+    bbox = calculate_bounding_box(center_lat, center_lon, radius_km)
+    
+    # Date filtering
+    today = datetime.now()
+    today_str = today.strftime('%Y-%m-%d')
+    end_date = today + timedelta(days=days_ahead)
+    end_date_str = end_date.strftime('%Y-%m-%d')
+
+    params = {
+        'key': API_KEY,
+        'size': min(limit, 300),
+        'detailed': 1,
+        # CORRECTION: Ajout du filtrage géographique via l'API
+        'geo[northEast][lat]': bbox['northEast']['lat'],
+        'geo[northEast][lng]': bbox['northEast']['lng'],
+        'geo[southWest][lat]': bbox['southWest']['lat'],
+        'geo[southWest][lng]': bbox['southWest']['lng'],
+        # CORRECTION: Ajout du filtrage temporel via l'API
+        'timings[gte]': today_str,
+        'timings[lte]': end_date_str,
+    }
+
+    try:
+        r = requests.get(url, params=params, timeout=20)
+        r.raise_for_status()
+        return r.json() or {}
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error fetching events from agenda {agenda_uid}: {e}")
+        return {"events": []}
+
+
+def parse_iso_datetime(s):
+    """Parse une date ISO en datetime UTC (offset-aware)."""
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+
+# -------------------------------------------------
+# Géocodage Nominatim / OpenStreetMap
+# -------------------------------------------------
+
+def geocode_address_nominatim(address_str):
+    """
+    Géocode une adresse texte avec Nominatim (OpenStreetMap).
+
+    ⚠️ IMPORTANT :
+    - respecter les conditions d'utilisation de Nominatim
+    - toujours envoyer un User-Agent avec un contact (site ou email)
+    """
+    if not address_str:
+        return None, None
+
+    # Cache en mémoire pour ne pas re-géocoder la même adresse
+    if address_str in GEOCODE_CACHE:
+        return GEOCODE_CACHE[address_str]
+
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {
+        "q": address_str,
+        "format": "json",
+        "limit": 1
+    }
+    headers = {
+        "User-Agent": "gedeon-demo/1.0 (eric@ericmahe.com)"
+    }
+
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        if not data:
+            GEOCODE_CACHE[address_str] = (None, None)
+            return None, None
+
+        lat = float(data[0]["lat"])
+        lon = float(data[0]["lon"])
+        GEOCODE_CACHE[address_str] = (lat, lon)
+        print(f"🌍 Nominatim geocode OK: '{address_str}' -> ({lat}, {lon})")
+        return lat, lon
+    except requests.RequestException as e:
+        print(f"❌ Nominatim error for '{address_str}': {e}")
+        GEOCODE_CACHE[address_str] = (None, None)
+        return None, None
+    except (KeyError, ValueError) as e:
+        print(f"❌ Nominatim parse error for '{address_str}': {e}")
+        GEOCODE_CACHE[address_str] = (None, None)
+        return None, None
+
+
+# -------------------------------------------------
+# Routes front
+# -------------------------------------------------
+
+@app.route('/')
+def index():
+    """Renvoie la page HTML principale."""
+    return send_from_directory('.', 'index.html')
+
+
+# -------------------------------------------------
+# API : positions
+# -------------------------------------------------
+
+@app.route('/api/location', methods=['GET', 'POST', 'DELETE'])
+def location_collection():
+    if request.method == 'GET':
+        locations = load_locations()
+        return jsonify({
+            "status": "success",
+            "count": len(locations),
+            "locations": locations,
+        }), 200
+
+    if request.method == 'POST':
+        try:
+            data = request.get_json(force=True)
+        except Exception:
+            return jsonify({"status": "error", "message": "Corps JSON invalide"}), 400
+
+        latitude = data.get("latitude")
+        longitude = data.get("longitude")
+        accuracy = data.get("accuracy")
+
+        if latitude is None or longitude is None:
+            return jsonify({"status": "error", "message": "latitude et longitude sont requises"}), 400
+
+        try:
+            entry = add_location(latitude, longitude, accuracy)
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+        return jsonify({"status": "success", "location": entry}), 201
+
+    if request.method == 'DELETE':
+        try:
+            save_locations([])
+            return jsonify({
+                "status": "success",
+                "message": "Toutes les positions ont été supprimées"
+            }), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    return jsonify({"status": "error", "message": "Méthode non supportée"}), 405
+
+
+@app.route('/api/location/latest', methods=['GET'])
+def location_latest():
+    latest = get_latest_location()
+    if latest is None:
+        return jsonify({
+            "status": "error",
+            "message": "Aucune position enregistrée pour le moment"
+        }), 404
+
+    return jsonify({
+        "status": "success",
+        "location": latest,
+    }), 200
+
+
+# -------------------------------------------------
+# API : événements à proximité (rayon / jours paramétrables, France entière)
+# -------------------------------------------------
+
+@app.route('/api/events/nearby', methods=['GET'])
+def events_nearby():
+    """
+    Cherche des événements autour d'une position (téléphone ou dernière position enregistrée),
+    sur l'ensemble des agendas accessibles à la clé API (France entière pour CETTE clé).
+
+    Paramètres de requête (GET) :
+      - lat      : latitude (float, optionnel - prioritaire sur position enregistrée)
+      - lon      : longitude (float, optionnel - prioritaire sur position enregistrée)
+      - radiusKm : rayon en kilomètres (float, optionnel)
+      - days     : nombre de jours à venir (int, optionnel)
+    """
+    try:
+        # 0. Lecture des paramètres de filtrage
+        lat_param = request.args.get("lat", type=float)
+        lon_param = request.args.get("lon", type=float)
+        radius_param = request.args.get("radiusKm", type=float)
+        days_param = request.args.get("days", type=int)
+
+        radius_km = radius_param if (radius_param is not None and radius_param > 0) else RADIUS_KM_DEFAULT
+        days_ahead = days_param if (days_param is not None and days_param >= 0) else DAYS_AHEAD_DEFAULT
+
+        # Rayon max (sécurité)
+        if radius_km > 1000:
+            radius_km = 1000.0
+
+        now = datetime.now(timezone.utc)
+        end = now + timedelta(days=days_ahead)
+
+        # 1. Position : priorité aux paramètres lat/lon, sinon dernière position enregistrée
+        if lat_param is not None and lon_param is not None:
+            # Utiliser les coordonnées passées en paramètres (position actuelle du téléphone)
+            center_lat = lat_param
+            center_lon = lon_param
+            print(f"📍 Utilisation de la position fournie en paramètres: ({center_lat}, {center_lon})")
+        else:
+            # Utiliser la dernière position enregistrée
+            latest = get_latest_location()
+            if latest is None:
+                return jsonify({
+                    "status": "error",
+                    "message": "Aucune position enregistrée et aucune coordonnée fournie. Utilisez ?lat=XX&lon=YY ou enregistrez une position."
+                }), 404
+
+            center_lat = latest.get("latitude")
+            center_lon = latest.get("longitude")
+            if center_lat is None or center_lon is None:
+                return jsonify({
+                    "status": "error",
+                    "message": "Dernier point invalide (latitude/longitude manquantes)."
+                }), 500
+            
+            print(f"📍 Utilisation de la dernière position enregistrée: ({center_lat}, {center_lon})")
+
+        try:
+            center_lat = float(center_lat)
+            center_lon = float(center_lon)
+        except ValueError:
+            return jsonify({
+                "status": "error",
+                "message": "Coordonnées invalides."
+            }), 500
+
+        print(f"🔍 Recherche d'événements autour de ({center_lat}, {center_lon}), rayon={radius_km}km, jours={days_ahead}")
+
+        # 2. Recherche d'agendas (France entière pour cette clé)
+        agendas_result = search_agendas(limit=200)
+        agendas = agendas_result.get('agendas', []) if agendas_result else []
+        total_agendas = len(agendas)
+
+        print(f"📚 {total_agendas} agendas trouvés")
+
+        # stats debug
+        agendas_with_events = 0
+        total_events_scanned = 0
+        total_events_after_geo_filter = 0
+        total_events_after_distance = 0
+        min_distance = None
+
+        if not agendas:
+            return jsonify({
+                "status": "success",
+                "center": {"latitude": center_lat, "longitude": center_lon},
+                "radiusKm": radius_km,
+                "days": days_ahead,
+                "events": [],
+                "count": 0,
+                "info": "Aucun agenda trouvé pour cette clé API.",
+                "debug": {
+                    "totalAgendas": 0,
+                    "agendasWithEvents": 0,
+                    "totalEventsScanned": 0,
+                    "totalEventsAfterGeoFilter": 0,
+                    "totalEventsAfterDistanceFilter": 0,
+                    "minDistanceKm": None
+                }
+            }), 200
+
+        # 3. Récupération des événements agenda par agenda avec filtrage API
+        all_events = []
+
+        for idx, agenda in enumerate(agendas):
+            uid = agenda.get('uid')
+            agenda_slug = agenda.get('slug')
+            title = agenda.get('title', {})
+            if isinstance(title, dict):
+                agenda_title = title.get('fr') or title.get('en') or 'Agenda'
+            else:
+                agenda_title = title or 'Agenda'
+
+            print(f"📖 [{idx+1}/{total_agendas}] Agenda: {agenda_title} ({uid})")
+
+            # CORRECTION MAJEURE: Passer les coordonnées et le rayon à la fonction
+            events_data = get_events_from_agenda(uid, center_lat, center_lon, radius_km, days_ahead, limit=300)
+            events = events_data.get('events', []) if events_data else []
+            
+            print(f"   → {len(events)} événements retournés par l'API")
+            
+            total_events_scanned += len(events)
+
+            if events:
+                agendas_with_events += 1
+
+            for ev in events:
+                # L'API a déjà filtré par date et bounding box
+                total_events_after_geo_filter += 1
+
+                # Récupération du timing
+                timings = ev.get('timings') or []
+                begin_str = None
+                end_str = None
+                if timings:
+                    first_timing = timings[0]
+                    begin_str = first_timing.get('begin')
+                    end_str = first_timing.get('end')
+
+                # Récupération de la localisation
+                loc = ev.get('location') or {}
+                ev_lat = loc.get('latitude')
+                ev_lon = loc.get('longitude')
+
+                # Si OpenAgenda ne fournit pas de lat/lon, on tente Nominatim
+                if ev_lat is None or ev_lon is None:
+                    parts = []
+                    if loc.get("name"):
+                        parts.append(str(loc["name"]))
+                    if loc.get("address"):
+                        parts.append(str(loc["address"]))
+                    if loc.get("city"):
+                        parts.append(str(loc["city"]))
+                    parts.append("France")
+                    address_str = ", ".join(parts)
+
+                    geocoded_lat, geocoded_lon = geocode_address_nominatim(address_str)
+                    if geocoded_lat is not None and geocoded_lon is not None:
+                        ev_lat = geocoded_lat
+                        ev_lon = geocoded_lon
+                    else:
+                        # Impossible de géocoder => on ignore pour la carte
+                        print(f"   ⚠️  Pas de coordonnées pour: {ev.get('title', 'Sans titre')}")
+                        continue
+
+                try:
+                    ev_lat = float(ev_lat)
+                    ev_lon = float(ev_lon)
+                except ValueError:
+                    continue
+
+                # Calcul de la distance exacte
+                dist = haversine_km(center_lat, center_lon, ev_lat, ev_lon)
+
+                # mise à jour de la distance mini vue
+                if min_distance is None or dist < min_distance:
+                    min_distance = dist
+
+                # Vérification finale du rayon (par sécurité, l'API devrait avoir déjà filtré)
+                if dist > radius_km:
+                    print(f"   ❌ Événement hors rayon: {dist:.1f}km > {radius_km}km")
+                    continue
+
+                total_events_after_distance += 1
+
+                title_field = ev.get('title')
+                if isinstance(title_field, dict):
+                    ev_title = title_field.get('fr') or title_field.get('en') or 'Événement'
+                else:
+                    ev_title = title_field or 'Événement'
+
+                # slug de l'événement
+                event_slug = ev.get('slug')
+                openagenda_url = None
+                # Construction du lien public correct si on a les deux slugs
+                if agenda_slug and event_slug:
+                    openagenda_url = f"https://openagenda.com/{agenda_slug}/events/{event_slug}?lang=fr"
+
+                all_events.append({
+                    "uid": ev.get("uid"),
+                    "title": ev_title,
+                    "begin": begin_str,
+                    "end": end_str,
+                    "locationName": loc.get("name"),
+                    "city": loc.get("city"),
+                    "address": loc.get("address"),
+                    "latitude": ev_lat,
+                    "longitude": ev_lon,
+                    "distanceKm": round(dist, 1),
+                    "openagendaUrl": openagenda_url,
+                    "agendaTitle": agenda_title,
+                })
+
+        # Tri par date de début (texte ISO)
+        all_events.sort(key=lambda e: e["begin"] or "")
+
+        debug_info = {
+            "totalAgendas": total_agendas,
+            "agendasWithEvents": agendas_with_events,
+            "totalEventsScanned": total_events_scanned,
+            "totalEventsAfterGeoFilter": total_events_after_geo_filter,
+            "totalEventsAfterDistanceFilter": total_events_after_distance,
+            "minDistanceKm": round(min_distance, 1) if min_distance is not None else None
         }
 
-        updateStatus('🟡 Récupération de votre position...', 'active');
+        print(f"✅ {len(all_events)} événements trouvés au total")
+        print(f"📊 Debug: {debug_info}")
 
-        navigator.geolocation.getCurrentPosition(
-            async (position) => {
-                currentPosition = position;
-                updateCurrentLocationDisplay(position);
-                await fetchNearbyEvents(position);
-            },
-            (error) => {
-                console.error(error);
-                updateStatus('🔴 Erreur de géolocalisation : ' + error.message, 'error');
-            },
-            {
-                enableHighAccuracy: true,
-                maximumAge: 0,
-                timeout: 10000
-            }
-        );
-    }
+        return jsonify({
+            "status": "success",
+            "center": {"latitude": center_lat, "longitude": center_lon},
+            "radiusKm": radius_km,
+            "days": days_ahead,
+            "events": all_events,
+            "count": len(all_events),
+            "debug": debug_info,
+        }), 200
 
-    async function fetchNearbyEvents(position) {
-        try {
-            if (!position) {
-                updateStatus('🔴 Position non disponible', 'error');
-                return;
-            }
+    except Exception as e:
+        print("🔥 Error in /api/events/nearby:", repr(e))
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "message": "Une erreur interne est survenue dans /api/events/nearby.",
+            "details": str(e),
+        }), 500
 
-            updateStatus('🟡 Chargement des événements à proximité…', 'active');
 
-            const lat = position.coords.latitude;
-            const lon = position.coords.longitude;
+# -------------------------------------------------
+# Entrée principale
+# -------------------------------------------------
 
-            const params = new URLSearchParams();
-            params.append('lat', lat);
-            params.append('lon', lon);
-            params.append('radiusKm', currentRadiusKm);
-            params.append('days', currentDays);
-
-            const res = await fetch(`${SERVER_URL}/api/events/nearby?` + params.toString());
-            const result = await res.json();
-
-            console.log('DEBUG /api/events/nearby result:', result);
-
-            const section = document.getElementById('eventsSection');
-            const list = document.getElementById('eventsList');
-            const empty = document.getElementById('eventsEmpty');
-            const summary = document.getElementById('eventsSummary');
-
-            list.innerHTML = '';
-            empty.style.display = 'none';
-            summary.style.display = 'none';
-
-            if (!res.ok || result.status !== 'success') {
-                section.style.display = 'block';
-                empty.textContent = result.message || 'Erreur lors de la récupération des événements.';
-                empty.style.display = 'block';
-                updateStatus('🔴 Impossible de récupérer les événements', 'error');
-                return;
-            }
-
-            const events = result.events || [];
-            const radiusKm = result.radiusKm ?? currentRadiusKm;
-            const days = result.days ?? currentDays;
-            const count = result.count ?? events.length;
-
-            if (events.length === 0) {
-                section.style.display = 'block';
-                empty.style.display = 'block';
-                updateStatus(
-                    `🟡 Aucun événement trouvé dans les ${radiusKm} km pour les ${days} jour(s) à venir`,
-                    'waiting'
-                );
-                return;
-            }
-
-            summary.textContent =
-                `${count} événement(s) trouvé(s) dans un rayon de ${radiusKm} km ` +
-                `pour les ${days} jour(s) à venir.`;
-            summary.style.display = 'block';
-
-            events.forEach((ev, index) => {
-                const li = document.createElement('li');
-                li.className = 'event-item';
-
-                const title = document.createElement('div');
-                title.className = 'event-title';
-                title.textContent = ev.title || 'Événement sans titre';
-                li.appendChild(title);
-
-                const meta = document.createElement('div');
-                meta.className = 'event-meta';
-
-                const begin = ev.begin ? new Date(ev.begin).toLocaleString() : 'Date non précisée';
-
-                const whereParts = [];
-                if (ev.locationName) whereParts.push(ev.locationName);
-                if (ev.address)      whereParts.push(ev.address);
-                if (ev.city)         whereParts.push(ev.city);
-
-                let metaText = `${begin} — ${whereParts.join(' · ') || 'Lieu non précisé'}`;
-                if (ev.distanceKm != null) {
-                    metaText += ` · ${ev.distanceKm} km`;
-                }
-                meta.textContent = metaText;
-                li.appendChild(meta);
-
-                const links = document.createElement('div');
-                links.className = 'event-links';
-
-                if (ev.openagendaUrl) {
-                    const oaLink = document.createElement('a');
-                    oaLink.className = 'event-link';
-                    oaLink.href = ev.openagendaUrl;
-                    oaLink.target = '_blank';
-                    oaLink.rel = 'noopener noreferrer';
-                    oaLink.textContent = 'Voir sur OpenAgenda';
-                    links.appendChild(oaLink);
-                }
-
-                if (ev.latitude != null && ev.longitude != null) {
-                    const gmapsLink = document.createElement('a');
-                    gmapsLink.className = 'event-link';
-                    gmapsLink.href = `https://www.google.com/maps?q=${ev.latitude},${ev.longitude}`;
-                    gmapsLink.target = '_blank';
-                    gmapsLink.rel = 'noopener noreferrer';
-                    gmapsLink.textContent = 'Voir dans Google Maps';
-                    links.appendChild(gmapsLink);
-                }
-
-                if (links.children.length > 0) {
-                    li.appendChild(links);
-                }
-
-                if (ev.latitude != null && ev.longitude != null && index < 10) {
-                    const mapDiv = document.createElement('div');
-                    mapDiv.className = 'event-map';
-
-                    const iframe = document.createElement('iframe');
-                    iframe.loading = 'lazy';
-                    iframe.allowFullscreen = true;
-                    iframe.referrerPolicy = 'no-referrer-when-downgrade';
-                    iframe.src = `https://www.google.com/maps?q=${ev.latitude},${ev.longitude}&z=11&output=embed`;
-
-                    mapDiv.appendChild(iframe);
-                    li.appendChild(mapDiv);
-                }
-
-                list.appendChild(li);
-            });
-
-            section.style.display = 'block';
-            updateStatus('🟢 Événements à proximité chargés', 'active');
-        } catch (e) {
-            console.error(e);
-            updateStatus('🔴 Erreur lors du chargement des événements à proximité', 'error');
-        }
-    }
-
-    function setupSliders() {
-        const radiusRange = document.getElementById('radiusRange');
-        const daysRange = document.getElementById('daysRange');
-        const radiusValue = document.getElementById('radiusValue');
-        const daysValue = document.getElementById('daysValue');
-
-        radiusRange.addEventListener('input', () => {
-            currentRadiusKm = parseInt(radiusRange.value, 10);
-            radiusValue.textContent = currentRadiusKm;
-            if (currentPosition) {
-                fetchNearbyEvents(currentPosition);
-            }
-        });
-
-        daysRange.addEventListener('input', () => {
-            currentDays = parseInt(daysRange.value, 10);
-            daysValue.textContent = currentDays;
-            if (currentPosition) {
-                fetchNearbyEvents(currentPosition);
-            }
-        });
-    }
-
-    window.addEventListener('load', () => {
-        setupSliders();
-    });
-</script>
-</body>
-</html>
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    print(f"Starting server on port {port}")
+    print(f"OpenAgenda BASE_URL={BASE_URL}")
+    print(f"Radius default = {RADIUS_KM_DEFAULT} km, days default = {DAYS_AHEAD_DEFAULT}")
+    app.run(host='0.0.0.0', port=port, debug=True)
