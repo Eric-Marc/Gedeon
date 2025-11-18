@@ -95,9 +95,9 @@
             box-shadow: 0 4px 10px rgba(239, 68, 68, 0.4);
         }
 
-        /* 🔔 Animation de blink pour les boutons cliqués */
-        .btn-blink {
-            animation: blinkButton 0.6s ease-in-out 2;
+        /* 🔔 Animation de blink pour les boutons PENDANT le chargement */
+        .btn-loading {
+            animation: blinkButton 1s ease-in-out infinite;
         }
 
         @keyframes blinkButton {
@@ -344,6 +344,9 @@
     // contexte courant (null, 'Paris', 'Toulouse', 'GPS')
     let currentContextLabel = null;
 
+    // bouton en cours de chargement
+    let loadingButton = null;
+
     // timeout pour le debounce des sliders
     let sliderUpdateTimeout = null;
     const SLIDER_DEBOUNCE_MS = 600;
@@ -394,27 +397,44 @@
         };
     }
 
-    // 🔔 Blink visuel du bouton cliqué
-    function blinkButton(buttonEl) {
-        if (!buttonEl) return;
-        // reset animation si déjà appliquée
-        buttonEl.classList.remove('btn-blink');
-        void buttonEl.offsetWidth; // force reflow
-        buttonEl.classList.add('btn-blink');
+    // 🔔 Start / stop blink du bouton
+    function startButtonLoading(buttonEl) {
+        // enlève le blink sur un ancien bouton au cas où
+        if (loadingButton && loadingButton !== buttonEl) {
+            loadingButton.classList.remove('btn-loading');
+        }
+        loadingButton = buttonEl;
+        if (loadingButton) {
+            loadingButton.classList.add('btn-loading');
+        }
+    }
+
+    function stopButtonLoading() {
+        if (loadingButton) {
+            loadingButton.classList.remove('btn-loading');
+            loadingButton = null;
+        }
     }
 
     // Wrappers clics pour déclencher blink + logique
     function onCityButtonClick(cityKey, buttonEl) {
-        blinkButton(buttonEl);
-        fetchNearbyEventsForCity(cityKey);
+        startButtonLoading(buttonEl);
+        fetchNearbyEventsForCity(cityKey)
+            .finally(() => {
+                stopButtonLoading();
+            });
     }
 
     function onNearbyButtonClick(buttonEl) {
-        blinkButton(buttonEl);
-        fetchNearbyEventsWithCurrentPosition();
+        startButtonLoading(buttonEl);
+        fetchNearbyEventsWithCurrentPosition()
+            .finally(() => {
+                // la géoloc + fetch utilisent les callbacks, mais on stoppe ici au cas où
+                stopButtonLoading();
+            });
     }
 
-    // 🔹 Init : au démarrage on essaie déjà d'obtenir la position (optionnel)
+    // 🔹 Init : au démarrage on essaie déjà d'obtenir la position
     function initGeolocationOnLoad() {
         if (!navigator.geolocation) {
             updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
@@ -444,30 +464,39 @@
 
     // 🔹 Bouton "Événements à proximité" = toujours position du téléphone (nouvelle géoloc)
     function fetchNearbyEventsWithCurrentPosition() {
-        if (!navigator.geolocation) {
-            updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
-            return;
-        }
-
-        updateStatus('🟡 Recherche de la position du téléphone…', 'active');
-
-        navigator.geolocation.getCurrentPosition(
-            async (position) => {
-                currentPosition = position;
-                currentContextLabel = 'GPS';
-                updateCurrentLocationDisplay(position);
-                await fetchNearbyEvents(position);
-            },
-            (error) => {
-                console.error(error);
-                updateStatus('🔴 Erreur de géolocalisation : ' + error.message, 'error');
-            },
-            {
-                enableHighAccuracy: true,
-                maximumAge: 0,
-                timeout: 10000
+        return new Promise((resolve, reject) => {
+            if (!navigator.geolocation) {
+                updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
+                reject(new Error('Geolocation not supported'));
+                return;
             }
-        );
+
+            updateStatus('🟡 Recherche de la position du téléphone…', 'active');
+
+            navigator.geolocation.getCurrentPosition(
+                async (position) => {
+                    try {
+                        currentPosition = position;
+                        currentContextLabel = 'GPS';
+                        updateCurrentLocationDisplay(position);
+                        await fetchNearbyEvents(position);
+                        resolve();
+                    } catch (e) {
+                        reject(e);
+                    }
+                },
+                (error) => {
+                    console.error(error);
+                    updateStatus('🔴 Erreur de géolocalisation : ' + error.message, 'error');
+                    reject(error);
+                },
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 0,
+                    timeout: 10000
+                }
+            );
+        });
     }
 
     // 🔹 Boutons Paris / Toulouse
