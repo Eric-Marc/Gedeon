@@ -20,8 +20,8 @@ API_KEY = os.environ.get("OPENAGENDA_API_KEY", "a05c8baab2024ef494d3250fe4fec435
 BASE_URL = os.environ.get("OPENAGENDA_BASE_URL", "https://api.openagenda.com/v2")
 
 # Valeurs par défaut (France entière)
-RADIUS_KM_DEFAULT = 30      # par défaut 300 km
-DAYS_AHEAD_DEFAULT = 2       # par défaut 7 jours
+RADIUS_KM_DEFAULT = 30       # par défaut 30 km
+DAYS_AHEAD_DEFAULT = 7       # par défaut 7 jours
 
 # Cache simple en mémoire pour les géocodages Nominatim
 GEOCODE_CACHE = {}
