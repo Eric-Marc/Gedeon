@@ -234,8 +234,9 @@
         en France entière, filtrés par distance et par date.
     </p>
 
+    <!-- Message de statut : on l’utilise pour afficher "position trouvée" AVANT le bouton -->
     <div id="status" class="status waiting">
-        ⏳ En attente de recherche d'événements…
+        ⏳ En attente de la position du téléphone…
     </div>
 
     <div class="button-group">
@@ -333,19 +334,21 @@
         document.getElementById('currentLocationSection').style.display = 'block';
     }
 
-    async function fetchNearbyEventsWithCurrentPosition() {
+    // 🔹 Nouvel init : au démarrage on attend la position du téléphone
+    function initGeolocationOnLoad() {
         if (!navigator.geolocation) {
             updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
             return;
         }
 
-        updateStatus('🟡 Récupération de votre position...', 'active');
+        updateStatus('🟡 Recherche de la position du téléphone…', 'active');
 
         navigator.geolocation.getCurrentPosition(
-            async (position) => {
+            (position) => {
                 currentPosition = position;
                 updateCurrentLocationDisplay(position);
-                await fetchNearbyEvents(position);
+                // Message demandé : "position trouvée" avant le bouton
+                updateStatus('🟢 Position trouvée. Tu peux maintenant chercher des événements à proximité.', 'active');
             },
             (error) => {
                 console.error(error);
@@ -357,6 +360,15 @@
                 timeout: 10000
             }
         );
+    }
+
+    // 🔹 Le bouton utilise la position déjà trouvée au démarrage
+    async function fetchNearbyEventsWithCurrentPosition() {
+        if (!currentPosition) {
+            updateStatus('🟡 Position non encore disponible. Merci de patienter quelques secondes…', 'waiting');
+            return;
+        }
+        await fetchNearbyEvents(currentPosition);
     }
 
     async function fetchNearbyEvents(position) {
@@ -522,6 +534,7 @@
 
     window.addEventListener('load', () => {
         setupSliders();
+        initGeolocationOnLoad(); // 🔸 géoloc automatique au démarrage
     });
 </script>
 </body>
