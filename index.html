@@ -509,7 +509,7 @@
             const res = await fetch(`${SERVER_URL}/api/events/nearby?` + params.toString());
             const result = await res.json();
 
-            console.log('DEBUG /api/events/nearby result:', result); // pour voir le bloc debug
+            console.log('DEBUG /api/events/nearby result:', result);
 
             const section = document.getElementById('eventsSection');
             const list = document.getElementById('eventsList');
