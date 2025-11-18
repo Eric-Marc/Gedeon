@@ -73,6 +73,61 @@ def get_latest_location():
 
 
 # -------------------------------------------------
+# Fonctions utilitaires : calculs géographiques
+# -------------------------------------------------
+
+def calculate_bounding_box(lat, lng, radius_km):
+    """
+    Calculate bounding box coordinates from a center point and radius.
+
+    Args:
+        lat: Center latitude
+        lng: Center longitude
+        radius_km: Radius in kilometers
+
+    Returns:
+        Dictionary with northEast and southWest coordinates
+    """
+    # Earth's radius in kilometers
+    EARTH_RADIUS_KM = 6371.0
+
+    # Convert radius to radians
+    radius_rad = radius_km / EARTH_RADIUS_KM
+
+    # Convert lat/lng to radians
+    lat_rad = math.radians(lat)
+    lng_rad = math.radians(lng)
+
+    # Calculate latitude bounds
+    lat_delta = math.degrees(radius_rad)
+    min_lat = lat - lat_delta
+    max_lat = lat + lat_delta
+
+    # Calculate longitude bounds (accounting for latitude)
+    lng_delta = math.degrees(radius_rad / math.cos(lat_rad))
+    min_lng = lng - lng_delta
+    max_lng = lng + lng_delta
+
+    return {
+        'northEast': {'lat': max_lat, 'lng': max_lng},
+        'southWest': {'lat': min_lat, 'lng': min_lng}
+    }
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    """Distance en km entre deux points (latitude/longitude)."""
+    R = 6371.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
+
+# -------------------------------------------------
 # Fonctions utilitaires : OpenAgenda
 # -------------------------------------------------
 
@@ -107,21 +162,40 @@ def search_agendas(search_term=None, official=None, limit=200):
         return {"agendas": []}
 
 
-def get_events_from_agenda(agenda_uid, limit=300):
+def get_events_from_agenda(agenda_uid, center_lat, center_lon, radius_km, days_ahead, limit=300):
     """
-    Récupère les événements d'un agenda (current + upcoming),
-    sans filtre de ville.
+    Récupère les événements d'un agenda avec filtrage géographique et temporel via l'API.
+    
+    CORRECTION MAJEURE: Utilise les paramètres geo[] et timings[] pour filtrer via l'API
+    comme dans find_events.py
     """
     url = f"{BASE_URL}/agendas/{agenda_uid}/events"
 
+    # Calculate bounding box
+    bbox = calculate_bounding_box(center_lat, center_lon, radius_km)
+    
+    # Date filtering
+    today = datetime.now()
+    today_str = today.strftime('%Y-%m-%d')
+    end_date = today + timedelta(days=days_ahead)
+    end_date_str = end_date.strftime('%Y-%m-%d')
+
     params = {
-        "size": min(limit, 300),
-        "detailed": 1,
-        "relative[]": ["current", "upcoming"],
+        'key': API_KEY,
+        'size': min(limit, 300),
+        'detailed': 1,
+        # CORRECTION: Ajout du filtrage géographique via l'API
+        'geo[northEast][lat]': bbox['northEast']['lat'],
+        'geo[northEast][lng]': bbox['northEast']['lng'],
+        'geo[southWest][lat]': bbox['southWest']['lat'],
+        'geo[southWest][lng]': bbox['southWest']['lng'],
+        # CORRECTION: Ajout du filtrage temporel via l'API
+        'timings[gte]': today_str,
+        'timings[lte]': end_date_str,
     }
 
     try:
-        r = requests.get(url, headers=get_headers(), params=params, timeout=20)
+        r = requests.get(url, params=params, timeout=20)
         r.raise_for_status()
         return r.json() or {}
     except requests.exceptions.RequestException as e:
@@ -140,19 +214,6 @@ def parse_iso_datetime(s):
         return dt
     except Exception:
         return None
-
-
-def haversine_km(lat1, lon1, lat2, lon2):
-    """Distance en km entre deux points (latitude/longitude)."""
-    R = 6371.0
-    phi1 = math.radians(lat1)
-    phi2 = math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlambda = math.radians(lon2 - lon1)
-
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c
 
 
 # -------------------------------------------------
@@ -333,16 +394,20 @@ def events_nearby():
                 "message": "Coordonnées invalides."
             }), 500
 
+        print(f"🔍 Recherche d'événements autour de ({center_lat}, {center_lon}), rayon={radius_km}km, jours={days_ahead}")
+
         # 2. Recherche d'agendas (France entière pour cette clé)
         agendas_result = search_agendas(limit=200)
         agendas = agendas_result.get('agendas', []) if agendas_result else []
         total_agendas = len(agendas)
 
+        print(f"📚 {total_agendas} agendas trouvés")
+
         # stats debug
         agendas_with_events = 0
         total_events_scanned = 0
-        total_events_date_ok = 0
-        total_events_after_geo_and_radius = 0
+        total_events_after_geo_filter = 0
+        total_events_after_distance = 0
         min_distance = None
 
         if not agendas:
@@ -358,49 +423,51 @@ def events_nearby():
                     "totalAgendas": 0,
                     "agendasWithEvents": 0,
                     "totalEventsScanned": 0,
-                    "totalEventsAfterDateFilter": 0,
+                    "totalEventsAfterGeoFilter": 0,
                     "totalEventsAfterDistanceFilter": 0,
                     "minDistanceKm": None
                 }
             }), 200
 
-        # 3. Récupération des événements agenda par agenda + filtrage par distance et date
+        # 3. Récupération des événements agenda par agenda avec filtrage API
         all_events = []
 
-        for agenda in agendas:
+        for idx, agenda in enumerate(agendas):
             uid = agenda.get('uid')
-            agenda_slug = agenda.get('slug')  # slug de l'agenda pour l'URL publique
+            agenda_slug = agenda.get('slug')
             title = agenda.get('title', {})
             if isinstance(title, dict):
                 agenda_title = title.get('fr') or title.get('en') or 'Agenda'
             else:
                 agenda_title = title or 'Agenda'
 
-            events_data = get_events_from_agenda(uid, limit=300)
+            print(f"📖 [{idx+1}/{total_agendas}] Agenda: {agenda_title} ({uid})")
+
+            # CORRECTION MAJEURE: Passer les coordonnées et le rayon à la fonction
+            events_data = get_events_from_agenda(uid, center_lat, center_lon, radius_km, days_ahead, limit=300)
             events = events_data.get('events', []) if events_data else []
+            
+            print(f"   → {len(events)} événements retournés par l'API")
+            
             total_events_scanned += len(events)
 
             if events:
                 agendas_with_events += 1
 
             for ev in events:
+                # L'API a déjà filtré par date et bounding box
+                total_events_after_geo_filter += 1
+
+                # Récupération du timing
                 timings = ev.get('timings') or []
-                if not timings:
-                    continue
+                begin_str = None
+                end_str = None
+                if timings:
+                    first_timing = timings[0]
+                    begin_str = first_timing.get('begin')
+                    end_str = first_timing.get('end')
 
-                first_timing = timings[0]
-                begin_str = first_timing.get('begin')
-                begin_dt = parse_iso_datetime(begin_str)
-
-                if begin_dt is None:
-                    # date illisible => on ne filtre pas par date mais on compte
-                    total_events_date_ok += 1
-                else:
-                    # Filtre temporel : maintenant -> maintenant + days_ahead
-                    if not (now <= begin_dt <= end):
-                        continue
-                    total_events_date_ok += 1
-
+                # Récupération de la localisation
                 loc = ev.get('location') or {}
                 ev_lat = loc.get('latitude')
                 ev_lon = loc.get('longitude')
@@ -422,7 +489,8 @@ def events_nearby():
                         ev_lat = geocoded_lat
                         ev_lon = geocoded_lon
                     else:
-                        # Impossible de géocoder => on ignore cet événement pour la carte
+                        # Impossible de géocoder => on ignore pour la carte
+                        print(f"   ⚠️  Pas de coordonnées pour: {ev.get('title', 'Sans titre')}")
                         continue
 
                 try:
@@ -431,16 +499,19 @@ def events_nearby():
                 except ValueError:
                     continue
 
+                # Calcul de la distance exacte
                 dist = haversine_km(center_lat, center_lon, ev_lat, ev_lon)
 
                 # mise à jour de la distance mini vue
                 if min_distance is None or dist < min_distance:
                     min_distance = dist
 
+                # Vérification finale du rayon (par sécurité, l'API devrait avoir déjà filtré)
                 if dist > radius_km:
+                    print(f"   ❌ Événement hors rayon: {dist:.1f}km > {radius_km}km")
                     continue
 
-                total_events_after_geo_and_radius += 1
+                total_events_after_distance += 1
 
                 title_field = ev.get('title')
                 if isinstance(title_field, dict):
@@ -459,7 +530,7 @@ def events_nearby():
                     "uid": ev.get("uid"),
                     "title": ev_title,
                     "begin": begin_str,
-                    "end": first_timing.get('end'),
+                    "end": end_str,
                     "locationName": loc.get("name"),
                     "city": loc.get("city"),
                     "address": loc.get("address"),
@@ -477,10 +548,13 @@ def events_nearby():
             "totalAgendas": total_agendas,
             "agendasWithEvents": agendas_with_events,
             "totalEventsScanned": total_events_scanned,
-            "totalEventsAfterDateFilter": total_events_date_ok,
-            "totalEventsAfterDistanceFilter": total_events_after_geo_and_radius,
+            "totalEventsAfterGeoFilter": total_events_after_geo_filter,
+            "totalEventsAfterDistanceFilter": total_events_after_distance,
             "minDistanceKm": round(min_distance, 1) if min_distance is not None else None
         }
+
+        print(f"✅ {len(all_events)} événements trouvés au total")
+        print(f"📊 Debug: {debug_info}")
 
         return jsonify({
             "status": "success",
@@ -494,6 +568,8 @@ def events_nearby():
 
     except Exception as e:
         print("🔥 Error in /api/events/nearby:", repr(e))
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "status": "error",
             "message": "Une erreur interne est survenue dans /api/events/nearby.",
@@ -510,4 +586,4 @@ if __name__ == '__main__':
     print(f"Starting server on port {port}")
     print(f"OpenAgenda BASE_URL={BASE_URL}")
     print(f"Radius default = {RADIUS_KM_DEFAULT} km, days default = {DAYS_AHEAD_DEFAULT}")
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=True)
