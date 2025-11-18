@@ -131,14 +131,6 @@ def haversine_km(lat1, lon1, lat2, lon2):
 # Fonctions utilitaires : OpenAgenda
 # -------------------------------------------------
 
-def get_headers():
-    """Entêtes HTTP pour l'API OpenAgenda."""
-    return {
-        "key": API_KEY,
-        "Content-Type": "application/json"
-    }
-
-
 def search_agendas(search_term=None, official=None, limit=200):
     """
     Recherche d'agendas.
@@ -146,7 +138,10 @@ def search_agendas(search_term=None, official=None, limit=200):
       (France entière pour CETTE clé, pas "tout OpenAgenda").
     """
     url = f"{BASE_URL}/agendas"
-    params = {"size": min(limit, 300)}
+    params = {
+        "key": API_KEY,  # CORRECTION: La clé doit être dans les paramètres, pas les en-têtes
+        "size": min(limit, 300)
+    }
 
     if search_term:
         params["search"] = search_term
@@ -154,7 +149,7 @@ def search_agendas(search_term=None, official=None, limit=200):
         params["official"] = 1 if official else 0
 
     try:
-        r = requests.get(url, headers=get_headers(), params=params, timeout=15)
+        r = requests.get(url, params=params, timeout=15)
         r.raise_for_status()
         return r.json() or {}
     except requests.exceptions.RequestException as e:
