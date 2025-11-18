@@ -16,7 +16,7 @@ CORS(app)
 DATA_FILE = 'locations.json'
 
 # === OpenAgenda ===
-API_KEY = os.environ.get("OPENAGENDA_API_KEY", "218909f158934e1badf3851a650ad6c1")
+API_KEY = os.environ.get("OPENAGENDA_API_KEY", "a05c8baab2024ef494d3250fe4fec435")
 BASE_URL = os.environ.get("OPENAGENDA_BASE_URL", "https://api.openagenda.com/v2")
 
 # Valeurs par défaut (France entière)
