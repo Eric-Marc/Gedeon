@@ -582,4 +582,3 @@ if __name__ == '__main__':
     print(f"OpenAgenda BASE_URL={BASE_URL}")
     print(f"Radius default = {RADIUS_KM_DEFAULT} km, days default = {DAYS_AHEAD_DEFAULT}")
     app.run(host='0.0.0.0', port=port, debug=True)
- 
