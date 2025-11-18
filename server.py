@@ -131,7 +131,7 @@ def haversine_km(lat1, lon1, lat2, lon2):
 # Fonctions utilitaires : OpenAgenda
 # -------------------------------------------------
 
-def search_agendas(search_term=None, official=None, limit=200):
+def search_agendas(search_term=None, official=None, limit=100):
     """
     Recherche d'agendas.
     - Si search_term est None : agendas associés à la clé API
@@ -405,7 +405,7 @@ def events_nearby():
         print(f"🔍 Recherche d'événements autour de ({center_lat}, {center_lon}), rayon={radius_km}km, jours={days_ahead}")
 
         # 2. Recherche d'agendas (France entière pour cette clé)
-        agendas_result = search_agendas(limit=200)
+        agendas_result = search_agendas(limit=100)
         agendas = agendas_result.get('agendas', []) if agendas_result else []
         total_agendas = len(agendas)
 
