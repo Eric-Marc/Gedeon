@@ -95,6 +95,16 @@
             box-shadow: 0 4px 10px rgba(239, 68, 68, 0.4);
         }
 
+        /* 🔔 Animation de blink pour les boutons cliqués */
+        .btn-blink {
+            animation: blinkButton 0.6s ease-in-out 2;
+        }
+
+        @keyframes blinkButton {
+            0%, 100% { opacity: 1; transform: translateY(0); }
+            50%      { opacity: 0.4; transform: translateY(-1px); }
+        }
+
         .section {
             background: #f9fafb;
             border-radius: 14px;
@@ -241,13 +251,13 @@
 
     <!-- Boutons villes -->
     <div class="button-group">
-        <button class="btn-secondary" onclick="fetchNearbyEventsForCity('paris')">Paris</button>
-        <button class="btn-secondary" onclick="fetchNearbyEventsForCity('toulouse')">Toulouse</button>
+        <button class="btn-secondary" onclick="onCityButtonClick('paris', this)">Paris</button>
+        <button class="btn-secondary" onclick="onCityButtonClick('toulouse', this)">Toulouse</button>
     </div>
 
     <!-- Bouton basé sur la position réelle du téléphone -->
     <div class="button-group">
-        <button class="btn-primary" onclick="fetchNearbyEventsWithCurrentPosition()">Événements à proximité</button>
+        <button class="btn-primary" onclick="onNearbyButtonClick(this)">Événements à proximité</button>
     </div>
 
     <!-- Position actuelle (téléphone ou ville choisie) -->
@@ -384,7 +394,27 @@
         };
     }
 
-    // 🔹 Init : au démarrage on essaie déjà d'obtenir la position (optionnel mais pratique)
+    // 🔔 Blink visuel du bouton cliqué
+    function blinkButton(buttonEl) {
+        if (!buttonEl) return;
+        // reset animation si déjà appliquée
+        buttonEl.classList.remove('btn-blink');
+        void buttonEl.offsetWidth; // force reflow
+        buttonEl.classList.add('btn-blink');
+    }
+
+    // Wrappers clics pour déclencher blink + logique
+    function onCityButtonClick(cityKey, buttonEl) {
+        blinkButton(buttonEl);
+        fetchNearbyEventsForCity(cityKey);
+    }
+
+    function onNearbyButtonClick(buttonEl) {
+        blinkButton(buttonEl);
+        fetchNearbyEventsWithCurrentPosition();
+    }
+
+    // 🔹 Init : au démarrage on essaie déjà d'obtenir la position (optionnel)
     function initGeolocationOnLoad() {
         if (!navigator.geolocation) {
             updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
@@ -413,7 +443,7 @@
     }
 
     // 🔹 Bouton "Événements à proximité" = toujours position du téléphone (nouvelle géoloc)
-    async function fetchNearbyEventsWithCurrentPosition() {
+    function fetchNearbyEventsWithCurrentPosition() {
         if (!navigator.geolocation) {
             updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
             return;
@@ -649,7 +679,7 @@
 
     window.addEventListener('load', () => {
         setupSliders();
-        initGeolocationOnLoad(); // géoloc automatique au démarrage (optionnel)
+        initGeolocationOnLoad();
     });
 </script>
 </body>
