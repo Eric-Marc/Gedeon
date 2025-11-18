@@ -234,18 +234,25 @@
         en France entière, filtrés par distance et par date.
     </p>
 
-    <!-- Message de statut : on l’utilise pour afficher "position trouvée" AVANT le bouton -->
+    <!-- Statut global -->
     <div id="status" class="status waiting">
         ⏳ En attente de la position du téléphone…
     </div>
 
+    <!-- Boutons villes PRÉCÉDENT le bouton "Événements à proximité" -->
+    <div class="button-group">
+        <button class="btn-secondary" onclick="fetchNearbyEventsForCity('paris')">Paris</button>
+        <button class="btn-secondary" onclick="fetchNearbyEventsForCity('toulouse')">Toulouse</button>
+    </div>
+
+    <!-- Bouton basé sur la position réelle du téléphone -->
     <div class="button-group">
         <button class="btn-primary" onclick="fetchNearbyEventsWithCurrentPosition()">Événements à proximité</button>
     </div>
 
-    <!-- Position actuelle (téléphone) -->
+    <!-- Position actuelle (téléphone ou ville choisie) -->
     <div class="section" id="currentLocationSection" style="display:none;">
-        <h2>Position actuelle (téléphone)</h2>
+        <h2>Position actuelle (téléphone ou ville choisie)</h2>
         <div class="info-grid">
             <div class="info-label">Latitude</div>
             <div class="info-value" id="currentLatitude">-</div>
@@ -305,10 +312,24 @@
 <script>
     const SERVER_URL = window.location.origin;
 
+    // coordonnées fixes pour les villes
+    const CITY_COORDS = {
+        paris: {
+            label: 'Paris',
+            latitude: 48.8566,
+            longitude: 2.3522
+        },
+        toulouse: {
+            label: 'Toulouse',
+            latitude: 43.6045,
+            longitude: 1.4440
+        }
+    };
+
     // valeurs courantes des curseurs
     let currentRadiusKm = 30;
     let currentDays = 2;
-    let currentPosition = null; // Stocke la position actuelle
+    let currentPosition = null; // Stocke la position actuelle (téléphone ou ville choisie)
 
     function updateStatus(message, type) {
         const div = document.getElementById('status');
@@ -334,7 +355,18 @@
         document.getElementById('currentLocationSection').style.display = 'block';
     }
 
-    // 🔹 Nouvel init : au démarrage on attend la position du téléphone
+    // Création d'un "fake" objet position à partir de coordonnées fixes
+    function makeFakePosition(lat, lon) {
+        return {
+            coords: {
+                latitude: lat,
+                longitude: lon,
+                accuracy: null
+            }
+        };
+    }
+
+    // 🔹 Init : au démarrage on attend la position du téléphone
     function initGeolocationOnLoad() {
         if (!navigator.geolocation) {
             updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
@@ -347,7 +379,6 @@
             (position) => {
                 currentPosition = position;
                 updateCurrentLocationDisplay(position);
-                // Message demandé : "position trouvée" avant le bouton
                 updateStatus('🟢 Position trouvée. Tu peux maintenant chercher des événements à proximité.', 'active');
             },
             (error) => {
@@ -362,13 +393,29 @@
         );
     }
 
-    // 🔹 Le bouton utilise la position déjà trouvée au démarrage
+    // 🔹 Bouton "Événements à proximité" = utilise la position du téléphone
     async function fetchNearbyEventsWithCurrentPosition() {
         if (!currentPosition) {
             updateStatus('🟡 Position non encore disponible. Merci de patienter quelques secondes…', 'waiting');
             return;
         }
         await fetchNearbyEvents(currentPosition);
+    }
+
+    // 🔹 Boutons Paris / Toulouse
+    async function fetchNearbyEventsForCity(cityKey) {
+        const city = CITY_COORDS[cityKey];
+        if (!city) return;
+
+        updateStatus(`🟡 Chargement des événements pour ${city.label}…`, 'active');
+
+        const fakePos = makeFakePosition(city.latitude, city.longitude);
+        currentPosition = fakePos;
+        updateCurrentLocationDisplay(fakePos);
+
+        await fetchNearbyEvents(fakePos);
+
+        updateStatus(`🟢 Événements chargés pour ${city.label}`, 'active');
     }
 
     async function fetchNearbyEvents(position) {
@@ -534,7 +581,7 @@
 
     window.addEventListener('load', () => {
         setupSliders();
-        initGeolocationOnLoad(); // 🔸 géoloc automatique au démarrage
+        initGeolocationOnLoad(); // géoloc automatique au démarrage
     });
 </script>
 </body>
