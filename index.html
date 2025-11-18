@@ -239,7 +239,7 @@
         ⏳ En attente de la position du téléphone…
     </div>
 
-    <!-- Boutons villes PRÉCÉDENT le bouton "Événements à proximité" -->
+    <!-- Boutons villes -->
     <div class="button-group">
         <button class="btn-secondary" onclick="fetchNearbyEventsForCity('paris')">Paris</button>
         <button class="btn-secondary" onclick="fetchNearbyEventsForCity('toulouse')">Toulouse</button>
@@ -329,7 +329,11 @@
     // valeurs courantes des curseurs
     let currentRadiusKm = 30;
     let currentDays = 2;
-    let currentPosition = null; // Stocke la position actuelle (téléphone ou ville choisie)
+    let currentPosition = null; // position actuelle (téléphone ou ville choisie)
+
+    // timeout pour le debounce des sliders
+    let sliderUpdateTimeout = null;
+    const SLIDER_DEBOUNCE_MS = 600;
 
     function updateStatus(message, type) {
         const div = document.getElementById('status');
@@ -393,7 +397,7 @@
         );
     }
 
-    // 🔹 Bouton "Événements à proximité" = utilise la position du téléphone
+    // 🔹 Bouton "Événements à proximité" = position du téléphone
     async function fetchNearbyEventsWithCurrentPosition() {
         if (!currentPosition) {
             updateStatus('🟡 Position non encore disponible. Merci de patienter quelques secondes…', 'waiting');
@@ -407,7 +411,8 @@
         const city = CITY_COORDS[cityKey];
         if (!city) return;
 
-        updateStatus(`🟡 Chargement des événements pour ${city.label}…`, 'active');
+        // 👉 Message demandé : "recherche des événements sur Paris/Toulouse"
+        updateStatus(`🔍 Recherche des événements sur ${city.label}…`, 'active');
 
         const fakePos = makeFakePosition(city.latitude, city.longitude);
         currentPosition = fakePos;
@@ -556,6 +561,20 @@
         }
     }
 
+    // 🔹 planification de la mise à jour après déplacement des sliders
+    function scheduleSliderUpdate() {
+        if (!currentPosition) {
+            // on ne spam pas le serveur tant qu'on n'a pas de position
+            return;
+        }
+        if (sliderUpdateTimeout) {
+            clearTimeout(sliderUpdateTimeout);
+        }
+        sliderUpdateTimeout = setTimeout(() => {
+            fetchNearbyEvents(currentPosition);
+        }, SLIDER_DEBOUNCE_MS);
+    }
+
     function setupSliders() {
         const radiusRange = document.getElementById('radiusRange');
         const daysRange = document.getElementById('daysRange');
@@ -565,17 +584,13 @@
         radiusRange.addEventListener('input', () => {
             currentRadiusKm = parseInt(radiusRange.value, 10);
             radiusValue.textContent = currentRadiusKm;
-            if (currentPosition) {
-                fetchNearbyEvents(currentPosition);
-            }
+            scheduleSliderUpdate();
         });
 
         daysRange.addEventListener('input', () => {
             currentDays = parseInt(daysRange.value, 10);
             daysValue.textContent = currentDays;
-            if (currentPosition) {
-                fetchNearbyEvents(currentPosition);
-            }
+            scheduleSliderUpdate();
         });
     }
 
