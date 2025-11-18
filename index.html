@@ -331,6 +331,9 @@
     let currentDays = 2;
     let currentPosition = null; // position actuelle (téléphone ou ville choisie)
 
+    // contexte courant (null, 'Paris', 'Toulouse', 'GPS')
+    let currentContextLabel = null;
+
     // timeout pour le debounce des sliders
     let sliderUpdateTimeout = null;
     const SLIDER_DEBOUNCE_MS = 600;
@@ -393,6 +396,7 @@
         navigator.geolocation.getCurrentPosition(
             (position) => {
                 currentPosition = position;
+                currentContextLabel = 'GPS';
                 updateCurrentLocationDisplay(position);
                 updateStatus('🟢 Position trouvée. Tu peux maintenant chercher des événements à proximité.', 'active');
             },
@@ -414,6 +418,7 @@
             updateStatus('🟡 Position non encore disponible. Merci de patienter quelques secondes…', 'waiting');
             return;
         }
+        currentContextLabel = 'GPS';
         await fetchNearbyEvents(currentPosition);
     }
 
@@ -421,6 +426,8 @@
     async function fetchNearbyEventsForCity(cityKey) {
         const city = CITY_COORDS[cityKey];
         if (!city) return;
+
+        currentContextLabel = city.label;
 
         updateStatus(`🔍 Recherche des événements sur ${city.label}…`, 'active');
 
@@ -440,10 +447,17 @@
                 return;
             }
 
-            // Affiche rayon + dates dans le message de chargement
+            // Texte de lieu dans la phrase ("à Paris", "à Toulouse", "à proximité")
+            let placeText = 'à proximité';
+            if (currentContextLabel === 'Paris') {
+                placeText = 'à Paris';
+            } else if (currentContextLabel === 'Toulouse') {
+                placeText = 'à Toulouse';
+            }
+
             const loadingRange = getDateRangeTextFromNow(currentDays);
             updateStatus(
-                `🟡 Chargement des événements dans un rayon de ${currentRadiusKm} km, ` +
+                `🟡 Chargement des événements ${placeText} dans un rayon de ${currentRadiusKm} km, ` +
                 `du ${loadingRange.start} au ${loadingRange.end}…`,
                 'active'
             );
@@ -484,14 +498,13 @@
             const days = result.days ?? currentDays;
             const count = result.count ?? events.length;
 
-            // Recalcule le "du ... au ..." avec la valeur retournée par l'API
             const range = getDateRangeTextFromNow(days);
 
             if (events.length === 0) {
                 section.style.display = 'block';
                 empty.style.display = 'block';
                 updateStatus(
-                    `🟡 Aucun événement trouvé dans un rayon de ${radiusKm} km, ` +
+                    `🟡 Aucun événement trouvé ${placeText} dans un rayon de ${radiusKm} km, ` +
                     `du ${range.start} au ${range.end}`,
                     'waiting'
                 );
@@ -499,7 +512,7 @@
             }
 
             summary.textContent =
-                `${count} événement(s) trouvé(s) dans un rayon de ${radiusKm} km, ` +
+                `${count} événement(s) trouvé(s) ${placeText} dans un rayon de ${radiusKm} km, ` +
                 `du ${range.start} au ${range.end}.`;
             summary.style.display = 'block';
 
@@ -575,7 +588,7 @@
 
             section.style.display = 'block';
             updateStatus(
-                `🟢 Événements chargés dans un rayon de ${radiusKm} km, du ${range.start} au ${range.end}.`,
+                `🟢 Événements chargés ${placeText} dans un rayon de ${radiusKm} km, du ${range.start} au ${range.end}.`,
                 'active'
             );
         } catch (e) {
@@ -587,7 +600,6 @@
     // 🔹 planification de la mise à jour après déplacement des sliders
     function scheduleSliderUpdate() {
         if (!currentPosition) {
-            // on ne spam pas le serveur tant qu'on n'a pas de position
             return;
         }
         if (sliderUpdateTimeout) {
