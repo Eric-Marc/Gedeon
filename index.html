@@ -15,6 +15,13 @@
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
             crossorigin=""></script>
 
+    <!-- MarkerCluster CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+
+    <!-- MarkerCluster JS -->
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -366,6 +373,7 @@
     let eventsMap = null;
     let eventsMarkers = [];
     let searchRadiusCircle = null;
+    let markerCluster = null;
 
     function updateStatus(message, type) {
         const div = document.getElementById('status');
@@ -376,12 +384,10 @@
     function initOrResetEventsMap(centerLat, centerLon, radiusKm) {
         const mapDiv = document.getElementById('eventsMap');
 
-        // Supprimer les anciens marqueurs
-        eventsMarkers.forEach(marker => {
-            if (eventsMap) {
-                eventsMap.removeLayer(marker);
-            }
-        });
+        // Supprimer l'ancien cluster de marqueurs
+        if (markerCluster && eventsMap) {
+            eventsMap.removeLayer(markerCluster);
+        }
         eventsMarkers = [];
 
         // Supprimer l'ancien cercle de rayon
@@ -389,10 +395,18 @@
             eventsMap.removeLayer(searchRadiusCircle);
         }
 
+        // Calculer le zoom approprié en fonction du rayon
+        let zoomLevel = 11; // Par défaut pour ~30km
+        if (radiusKm <= 10) zoomLevel = 13;
+        else if (radiusKm <= 20) zoomLevel = 12;
+        else if (radiusKm <= 50) zoomLevel = 11;
+        else if (radiusKm <= 100) zoomLevel = 10;
+        else zoomLevel = 9;
+
         // Si la carte n'existe pas encore, la créer
         if (!eventsMap) {
             mapDiv.style.display = 'block';
-            eventsMap = L.map('eventsMap').setView([centerLat, centerLon], 9);
+            eventsMap = L.map('eventsMap').setView([centerLat, centerLon], zoomLevel);
 
             // Ajouter les tuiles OpenStreetMap
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -407,9 +421,9 @@
                 position: 'bottomleft'
             }).addTo(eventsMap);
         } else {
-            // Recentrer la carte
+            // Recentrer la carte avec le zoom approprié
             mapDiv.style.display = 'block';
-            eventsMap.setView([centerLat, centerLon], 9);
+            eventsMap.setView([centerLat, centerLon], zoomLevel);
         }
 
         // Ajouter un cercle montrant le rayon de recherche
@@ -420,6 +434,14 @@
             fillOpacity: 0.1,
             weight: 2
         }).addTo(eventsMap);
+
+        // Créer un nouveau cluster de marqueurs
+        markerCluster = L.markerClusterGroup({
+            chunkedLoading: true,
+            spiderfyOnMaxZoom: true,
+            showCoverageOnHover: false,
+            zoomToBoundsOnClick: true
+        });
 
         return eventsMap;
     }
@@ -722,7 +744,7 @@
 
                 // Ajouter un marqueur sur la carte pour cet événement
                 if (ev.latitude != null && ev.longitude != null) {
-                    const marker = L.marker([ev.latitude, ev.longitude]).addTo(eventsMap);
+                    const marker = L.marker([ev.latitude, ev.longitude]);
 
                     // Créer le popup avec les infos de l'événement
                     const popupContent = `
@@ -737,27 +759,14 @@
                     `;
                     marker.bindPopup(popupContent);
 
+                    // Ajouter le marqueur au cluster
+                    markerCluster.addLayer(marker);
                     eventsMarkers.push(marker);
                 }
             });
 
-            // Ajuster la vue de la carte pour montrer le cercle de rayon ET les marqueurs
-            if (eventsMarkers.length > 0) {
-                // Créer un groupe avec les marqueurs ET le cercle
-                const group = L.featureGroup([...eventsMarkers, searchRadiusCircle]);
-                eventsMap.fitBounds(group.getBounds(), {
-                    padding: [20, 20],
-                    maxZoom: 12,  // Ne pas zoomer plus près que ce niveau
-                    minZoom: 6    // Ne pas zoomer plus loin que ce niveau
-                });
-            } else {
-                // Si pas de marqueurs, montrer au moins le cercle de rayon
-                eventsMap.fitBounds(searchRadiusCircle.getBounds(), {
-                    padding: [20, 20],
-                    maxZoom: 12,
-                    minZoom: 6
-                });
-            }
+            // Ajouter le cluster de marqueurs à la carte
+            eventsMap.addLayer(markerCluster);
 
             section.style.display = 'block';
             updateStatus(
