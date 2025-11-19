@@ -128,6 +128,19 @@
         .info-label { color: #6b7280; }
         .info-value { color: #111827; font-family: monospace; text-align: right; }
 
+        .map-container {
+            margin-top: 9px;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid #e5e7eb;
+        }
+
+        .map-container iframe {
+            width: 100%;
+            height: 260px;
+            border: 0;
+        }
+
         .map-link {
             display: inline-block;
             margin-top: 6px;
@@ -192,4 +205,511 @@
         .event-map iframe {
             width: 100%;
             height: 180px;
-            border:
+            border: 0;
+        }
+
+        .hint {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 4px;
+        }
+
+        .slider-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 8px;
+        }
+
+        .slider-row label {
+            font-size: 13px;
+            color: #374151;
+        }
+
+        .slider-row input[type=range] {
+            width: 100%;
+        }
+
+        @media (max-width: 640px) {
+            .info-grid { grid-template-columns: 1fr; }
+            .info-value { text-align: left; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>📍 Localisation & événements à proximité</h1>
+    <p class="subtitle">
+        Le site utilise la position actuelle de ton téléphone pour afficher les événements OpenAgenda
+        en France entière, filtrés par distance et par date.
+    </p>
+
+    <!-- Statut global -->
+    <div id="status" class="status waiting">
+        ⏳ En attente de la position du téléphone…
+    </div>
+
+    <!-- Boutons villes -->
+    <div class="button-group">
+        <button class="btn-secondary" onclick="onCityButtonClick('paris', this)">Paris</button>
+        <button class="btn-secondary" onclick="onCityButtonClick('toulouse', this)">Toulouse</button>
+    </div>
+
+    <!-- Bouton basé sur la position réelle du téléphone -->
+    <div class="button-group">
+        <button class="btn-primary" onclick="onNearbyButtonClick(this)">Événements à proximité</button>
+    </div>
+
+    <!-- Position actuelle (téléphone ou ville choisie) -->
+    <div class="section" id="currentLocationSection" style="display:none;">
+        <h2>Position actuelle (téléphone ou ville choisie)</h2>
+        <div class="info-grid">
+            <div class="info-label">Latitude</div>
+            <div class="info-value" id="currentLatitude">-</div>
+
+            <div class="info-label">Longitude</div>
+            <div class="info-value" id="currentLongitude">-</div>
+
+            <div class="info-label">Précision</div>
+            <div class="info-value" id="currentAccuracy">-</div>
+
+            <div class="info-label">Dernière mise à jour</div>
+            <div class="info-value" id="currentTimestamp">-</div>
+        </div>
+        <a id="currentMapLink" class="map-link" href="#" target="_blank" rel="noopener noreferrer">
+            📍 Ouvrir cette position dans Google Maps
+        </a>
+    </div>
+
+    <!-- Événements à proximité -->
+    <div class="section" id="eventsSection" style="display:none;">
+        <h2>Événements à proximité</h2>
+
+        <!-- Curseurs de réglage -->
+        <div class="slider-row">
+            <label>
+                Rayon : <strong><span id="radiusValue">30</span> km</strong>
+            </label>
+            <input type="range" id="radiusRange" min="10" max="1000" step="10" value="30">
+        </div>
+
+        <div class="slider-row">
+            <label>
+                Fenêtre de temps : <strong>aujourd'hui + <span id="daysValue">2</span> jour(s)</strong>
+            </label>
+            <input type="range" id="daysRange" min="1" max="30" step="1" value="2">
+        </div>
+
+        <!-- résumé : nombre d'événements trouvés -->
+        <p id="eventsSummary"
+           style="display:none; font-size:13px; color:#111827; font-weight:500; margin-bottom:6px;">
+        </p>
+
+        <p id="eventsEmpty" style="display:none; font-size:13px; color:#6b7280; margin-bottom:8px;">
+            Aucun événement trouvé dans ce périmètre pour la période choisie.
+        </p>
+
+        <!-- liste des événements trouvés -->
+        <ul id="eventsList" class="events-list"></ul>
+
+        <p class="hint">
+            Chaque événement affiché possède un lien vers OpenAgenda et Google&nbsp;Maps,
+            et une petite carte intégrée quand les coordonnées sont disponibles.
+        </p>
+    </div>
+</div>
+
+<script>
+    const SERVER_URL = window.location.origin;
+
+    // coordonnées fixes pour les villes
+    const CITY_COORDS = {
+        paris: {
+            label: 'Paris',
+            latitude: 48.8566,
+            longitude: 2.3522
+        },
+        toulouse: {
+            label: 'Toulouse',
+            latitude: 43.6045,
+            longitude: 1.4440
+        }
+    };
+
+    // valeurs courantes des curseurs
+    let currentRadiusKm = 30;
+    let currentDays = 2;
+    let currentPosition = null; // position actuelle (téléphone ou ville choisie)
+
+    // contexte courant (null, 'Paris', 'Toulouse', 'GPS')
+    let currentContextLabel = null;
+
+    // bouton en cours de chargement
+    let loadingButton = null;
+
+    // timeout pour le debounce des sliders
+    let sliderUpdateTimeout = null;
+    const SLIDER_DEBOUNCE_MS = 600;
+
+    function updateStatus(message, type) {
+        const div = document.getElementById('status');
+        div.textContent = message;
+        div.className = 'status ' + type;
+    }
+
+    function updateCurrentLocationDisplay(position) {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        const acc = position.coords.accuracy;
+
+        document.getElementById('currentLatitude').textContent = lat.toFixed(6);
+        document.getElementById('currentLongitude').textContent = lon.toFixed(6);
+        document.getElementById('currentAccuracy').textContent =
+            acc != null ? Math.round(acc) + ' m' : '-';
+        document.getElementById('currentTimestamp').textContent =
+            new Date().toLocaleString();
+
+        const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
+        document.getElementById('currentMapLink').href = mapsUrl;
+
+        document.getElementById('currentLocationSection').style.display = 'block';
+    }
+
+    // Création d'un "fake" objet position à partir de coordonnées fixes
+    function makeFakePosition(lat, lon) {
+        return {
+            coords: {
+                latitude: lat,
+                longitude: lon,
+                accuracy: null
+            }
+        };
+    }
+
+    // Helper pour calculer "du ... au ..." à partir d'aujourd'hui
+    function getDateRangeTextFromNow(days) {
+        const today = new Date();
+        const end = new Date();
+        end.setDate(today.getDate() + days);
+        return {
+            start: today.toLocaleDateString('fr-FR'),
+            end: end.toLocaleDateString('fr-FR')
+        };
+    }
+
+    // 🔔 Start / stop blink du bouton
+    function startButtonLoading(buttonEl) {
+        // enlève le blink sur un ancien bouton au cas où
+        if (loadingButton && loadingButton !== buttonEl) {
+            loadingButton.classList.remove('btn-loading');
+        }
+        loadingButton = buttonEl;
+        if (loadingButton) {
+            loadingButton.classList.add('btn-loading');
+        }
+    }
+
+    function stopButtonLoading() {
+        if (loadingButton) {
+            loadingButton.classList.remove('btn-loading');
+            loadingButton = null;
+        }
+    }
+
+    // Wrappers clics pour déclencher blink + logique
+    function onCityButtonClick(cityKey, buttonEl) {
+        startButtonLoading(buttonEl);
+        fetchNearbyEventsForCity(cityKey)
+            .finally(() => {
+                stopButtonLoading();
+            });
+    }
+
+    function onNearbyButtonClick(buttonEl) {
+        startButtonLoading(buttonEl);
+        fetchNearbyEventsWithCurrentPosition()
+            .finally(() => {
+                // la géoloc + fetch utilisent les callbacks, mais on stoppe ici au cas où
+                stopButtonLoading();
+            });
+    }
+
+    // 🔹 Init : au démarrage on essaie déjà d'obtenir la position
+    function initGeolocationOnLoad() {
+        if (!navigator.geolocation) {
+            updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
+            return;
+        }
+
+        updateStatus('🟡 Recherche de la position du téléphone…', 'active');
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                currentPosition = position;
+                currentContextLabel = 'GPS';
+                updateCurrentLocationDisplay(position);
+                updateStatus('🟢 Position trouvée. Tu peux maintenant chercher des événements à proximité.', 'active');
+            },
+            (error) => {
+                console.error(error);
+                updateStatus('🔴 Erreur de géolocalisation : ' + error.message, 'error');
+            },
+            {
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: 10000
+            }
+        );
+    }
+
+    // 🔹 Bouton "Événements à proximité" = toujours position du téléphone (nouvelle géoloc)
+    function fetchNearbyEventsWithCurrentPosition() {
+        return new Promise((resolve, reject) => {
+            if (!navigator.geolocation) {
+                updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
+                reject(new Error('Geolocation not supported'));
+                return;
+            }
+
+            updateStatus('🟡 Recherche de la position du téléphone…', 'active');
+
+            navigator.geolocation.getCurrentPosition(
+                async (position) => {
+                    try {
+                        currentPosition = position;
+                        currentContextLabel = 'GPS';
+                        updateCurrentLocationDisplay(position);
+                        await fetchNearbyEvents(position);
+                        resolve();
+                    } catch (e) {
+                        reject(e);
+                    }
+                },
+                (error) => {
+                    console.error(error);
+                    updateStatus('🔴 Erreur de géolocalisation : ' + error.message, 'error');
+                    reject(error);
+                },
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 0,
+                    timeout: 10000
+                }
+            );
+        });
+    }
+
+    // 🔹 Boutons Paris / Toulouse
+    async function fetchNearbyEventsForCity(cityKey) {
+        const city = CITY_COORDS[cityKey];
+        if (!city) return;
+
+        currentContextLabel = city.label;
+
+        updateStatus(`🔍 Recherche des événements sur ${city.label}…`, 'active');
+
+        const fakePos = makeFakePosition(city.latitude, city.longitude);
+        currentPosition = fakePos;
+        updateCurrentLocationDisplay(fakePos);
+
+        await fetchNearbyEvents(fakePos);
+
+        updateStatus(`🟢 Événements chargés pour ${city.label}`, 'active');
+    }
+
+    async function fetchNearbyEvents(position) {
+        try {
+            if (!position) {
+                updateStatus('🔴 Position non disponible', 'error');
+                return;
+            }
+
+            // Texte de lieu dans la phrase ("à Paris", "à Toulouse", "à proximité")
+            let placeText = 'à proximité';
+            if (currentContextLabel === 'Paris') {
+                placeText = 'à Paris';
+            } else if (currentContextLabel === 'Toulouse') {
+                placeText = 'à Toulouse';
+            }
+
+            const loadingRange = getDateRangeTextFromNow(currentDays);
+            updateStatus(
+                `🟡 Chargement des événements ${placeText} dans un rayon de ${currentRadiusKm} km, ` +
+                `du ${loadingRange.start} au ${loadingRange.end}…`,
+                'active'
+            );
+
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+
+            const params = new URLSearchParams();
+            params.append('lat', lat);
+            params.append('lon', lon);
+            params.append('radiusKm', currentRadiusKm);
+            params.append('days', currentDays);
+
+            const res = await fetch(`${SERVER_URL}/api/events/nearby?` + params.toString());
+            const result = await res.json();
+
+            console.log('DEBUG /api/events/nearby result:', result);
+
+            const section = document.getElementById('eventsSection');
+            const list = document.getElementById('eventsList');
+            const empty = document.getElementById('eventsEmpty');
+            const summary = document.getElementById('eventsSummary');
+
+            list.innerHTML = '';
+            empty.style.display = 'none';
+            summary.style.display = 'none';
+
+            if (!res.ok || result.status !== 'success') {
+                section.style.display = 'block';
+                empty.textContent = result.message || 'Erreur lors de la récupération des événements.';
+                empty.style.display = 'block';
+                updateStatus('🔴 Impossible de récupérer les événements', 'error');
+                return;
+            }
+
+            const events = result.events || [];
+            const radiusKm = result.radiusKm ?? currentRadiusKm;
+            const days = result.days ?? currentDays;
+            const count = result.count ?? events.length;
+
+            const range = getDateRangeTextFromNow(days);
+
+            if (events.length === 0) {
+                section.style.display = 'block';
+                empty.style.display = 'block';
+                updateStatus(
+                    `🟡 Aucun événement trouvé ${placeText} dans un rayon de ${radiusKm} km, ` +
+                    `du ${range.start} au ${range.end}`,
+                    'waiting'
+                );
+                return;
+            }
+
+            summary.textContent =
+                `${count} événement(s) trouvé(s) ${placeText} dans un rayon de ${radiusKm} km, ` +
+                `du ${range.start} au ${range.end}.`;
+            summary.style.display = 'block';
+
+            events.forEach((ev, index) => {
+                const li = document.createElement('li');
+                li.className = 'event-item';
+
+                const title = document.createElement('div');
+                title.className = 'event-title';
+                title.textContent = ev.title || 'Événement sans titre';
+                li.appendChild(title);
+
+                const meta = document.createElement('div');
+                meta.className = 'event-meta';
+
+                const begin = ev.begin ? new Date(ev.begin).toLocaleString() : 'Date non précisée';
+
+                const whereParts = [];
+                if (ev.locationName) whereParts.push(ev.locationName);
+                if (ev.address)      whereParts.push(ev.address);
+                if (ev.city)         whereParts.push(ev.city);
+
+                let metaText = `${begin} — ${whereParts.join(' · ') || 'Lieu non précisé'}`;
+                if (ev.distanceKm != null) {
+                    metaText += ` · ${ev.distanceKm} km`;
+                }
+                meta.textContent = metaText;
+                li.appendChild(meta);
+
+                const links = document.createElement('div');
+                links.className = 'event-links';
+
+                if (ev.openagendaUrl) {
+                    const oaLink = document.createElement('a');
+                    oaLink.className = 'event-link';
+                    oaLink.href = ev.openagendaUrl;
+                    oaLink.target = '_blank';
+                    oaLink.rel = 'noopener noreferrer';
+                    oaLink.textContent = 'Voir sur OpenAgenda';
+                    links.appendChild(oaLink);
+                }
+
+                if (ev.latitude != null && ev.longitude != null) {
+                    const gmapsLink = document.createElement('a');
+                    gmapsLink.className = 'event-link';
+                    gmapsLink.href = `https://www.google.com/maps?q=${ev.latitude},${ev.longitude}`;
+                    gmapsLink.target = '_blank';
+                    gmapsLink.rel = 'noopener noreferrer';
+                    gmapsLink.textContent = 'Voir dans Google Maps';
+                    links.appendChild(gmapsLink);
+                }
+
+                if (links.children.length > 0) {
+                    li.appendChild(links);
+                }
+
+                if (ev.latitude != null && ev.longitude != null && index < 10) {
+                    const mapDiv = document.createElement('div');
+                    mapDiv.className = 'event-map';
+
+                    const iframe = document.createElement('iframe');
+                    iframe.loading = 'lazy';
+                    iframe.allowFullscreen = true;
+                    iframe.referrerPolicy = 'no-referrer-when-downgrade';
+                    iframe.src = `https://www.google.com/maps?q=${ev.latitude},${ev.longitude}&z=11&output=embed`;
+
+                    mapDiv.appendChild(iframe);
+                    li.appendChild(mapDiv);
+                }
+
+                list.appendChild(li);
+            });
+
+            section.style.display = 'block';
+            updateStatus(
+                `🟢 Événements chargés ${placeText} dans un rayon de ${radiusKm} km, du ${range.start} au ${range.end}.`,
+                'active'
+            );
+        } catch (e) {
+            console.error(e);
+            updateStatus('🔴 Erreur lors du chargement des événements à proximité', 'error');
+        }
+    }
+
+    // 🔹 planification de la mise à jour après déplacement des sliders
+    function scheduleSliderUpdate() {
+        if (!currentPosition) {
+            return;
+        }
+        if (sliderUpdateTimeout) {
+            clearTimeout(sliderUpdateTimeout);
+        }
+        sliderUpdateTimeout = setTimeout(() => {
+            fetchNearbyEvents(currentPosition);
+        }, SLIDER_DEBOUNCE_MS);
+    }
+
+    function setupSliders() {
+        const radiusRange = document.getElementById('radiusRange');
+        const daysRange = document.getElementById('daysRange');
+        const radiusValue = document.getElementById('radiusValue');
+        const daysValue = document.getElementById('daysValue');
+
+        radiusRange.addEventListener('input', () => {
+            currentRadiusKm = parseInt(radiusRange.value, 10);
+            radiusValue.textContent = currentRadiusKm;
+            scheduleSliderUpdate();
+        });
+
+        daysRange.addEventListener('input', () => {
+            currentDays = parseInt(daysRange.value, 10);
+            daysValue.textContent = currentDays;
+            scheduleSliderUpdate();
+        });
+    }
+
+    window.addEventListener('load', () => {
+        setupSliders();
+        initGeolocationOnLoad();
+    });
+</script>
+</body>
+</html>
