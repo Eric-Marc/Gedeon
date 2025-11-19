@@ -266,6 +266,7 @@
                 <button onclick="getUserLocation()">📍 Ma position</button>
                 <button onclick="fetchNearbyEventsForCity('paris')">🗼 Paris</button>
                 <button onclick="fetchNearbyEventsForCity('toulouse')">🏛️ Toulouse</button>
+                <button onclick="resetMapView()" id="resetViewBtn" style="display:none;">🔄 Réinitialiser la vue</button>
             </div>
         </div>
 
@@ -333,6 +334,7 @@
         let currentContextLabel = '';
         let sliderUpdateTimeout = null;
         const SLIDER_DEBOUNCE_MS = 800;
+        let initialMapBounds = null; // Pour stocker la vue initiale
 
         // Initialiser la carte
         function initMap() {
@@ -402,8 +404,8 @@
                 L.circle([centerLat, centerLon], {
                     radius: radiusKm * 1000, // en mètres
                     color: '#667eea',
-                    fillColor: '#667eea',
-                    fillOpacity: 0.1,
+                    fillColor: 'transparent',
+                    fillOpacity: 0,
                     weight: 2
                 }).addTo(map);
 
@@ -448,9 +450,18 @@
             // Ajuster la vue pour montrer tous les marqueurs
             if (allMarkers.length > 0) {
                 const group = L.featureGroup(allMarkers.map(m => m.marker));
-                map.fitBounds(group.getBounds().pad(0.1));
+                const bounds = group.getBounds().pad(0.1);
+                map.fitBounds(bounds);
+                
+                // Sauvegarder la vue initiale
+                initialMapBounds = bounds;
+                
+                // Afficher le bouton de réinitialisation
+                document.getElementById('resetViewBtn').style.display = 'inline-block';
             } else if (centerLat && centerLon) {
                 map.setView([centerLat, centerLon], 11);
+                initialMapBounds = map.getBounds();
+                document.getElementById('resetViewBtn').style.display = 'inline-block';
             }
 
             // Mettre à jour les statistiques
@@ -568,6 +579,13 @@
                 }
                 
                 console.error('Détails:', errorMsg);
+            }
+        }
+
+        // Réinitialiser la vue de la carte
+        function resetMapView() {
+            if (initialMapBounds && map) {
+                map.fitBounds(initialMapBounds);
             }
         }
 
