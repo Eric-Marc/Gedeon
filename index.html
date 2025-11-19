@@ -383,17 +383,7 @@
 
     function initOrResetEventsMap(centerLat, centerLon, radiusKm) {
         const mapDiv = document.getElementById('eventsMap');
-
-        // Supprimer l'ancien cluster de marqueurs
-        if (markerCluster && eventsMap) {
-            eventsMap.removeLayer(markerCluster);
-        }
-        eventsMarkers = [];
-
-        // Supprimer l'ancien cercle de rayon
-        if (searchRadiusCircle && eventsMap) {
-            eventsMap.removeLayer(searchRadiusCircle);
-        }
+        mapDiv.style.display = 'block';
 
         // Calculer le zoom approprié en fonction du rayon
         let zoomLevel = 11; // Par défaut pour ~30km
@@ -402,9 +392,6 @@
         else if (radiusKm <= 50) zoomLevel = 11;
         else if (radiusKm <= 100) zoomLevel = 10;
         else zoomLevel = 9;
-
-        // Afficher le div de la carte d'abord
-        mapDiv.style.display = 'block';
 
         // Si la carte n'existe pas encore, la créer
         if (!eventsMap) {
@@ -422,17 +409,24 @@
                 imperial: false,
                 position: 'bottomleft'
             }).addTo(eventsMap);
-        } else {
-            // Recentrer la carte avec le zoom approprié
-            eventsMap.setView([centerLat, centerLon], zoomLevel);
         }
 
-        // Forcer le rafraîchissement de la taille de la carte
-        eventsMap.invalidateSize();
+        // Supprimer l'ancien cluster de marqueurs si existe
+        if (markerCluster) {
+            eventsMap.removeLayer(markerCluster);
+        }
+
+        // Supprimer l'ancien cercle de rayon si existe
+        if (searchRadiusCircle) {
+            eventsMap.removeLayer(searchRadiusCircle);
+        }
+
+        // Recentrer la carte
+        eventsMap.setView([centerLat, centerLon], zoomLevel);
 
         // Ajouter un cercle montrant le rayon de recherche
         searchRadiusCircle = L.circle([centerLat, centerLon], {
-            radius: radiusKm * 1000, // conversion km -> mètres
+            radius: radiusKm * 1000,
             color: '#4f46e5',
             fillColor: '#4f46e5',
             fillOpacity: 0.1,
@@ -447,7 +441,7 @@
             zoomToBoundsOnClick: true
         });
 
-        return eventsMap;
+        eventsMarkers = [];
     }
 
     function updateCurrentLocationDisplay(position) {
