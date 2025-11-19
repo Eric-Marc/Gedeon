@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8" />
-    <title>Localisation & événements OpenAgenda</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carte des Événements OpenAgenda</title>
 
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
           integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
           crossorigin=""/>
 
-    <!-- Leaflet JavaScript -->
+    <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
             crossorigin=""></script>
@@ -23,41 +23,141 @@
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+        }
+
+        #header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
+            color: white;
             padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
 
-        .container {
-            max-width: 960px;
-            margin: 0 auto;
-            background: #ffffff;
-            border-radius: 20px;
-            padding: 24px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        #header h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
         }
 
-        h1 {
-            font-size: 26px;
-            margin-bottom: 6px;
-            color: #111827;
+        #header p {
+            font-size: 16px;
+            opacity: 0.9;
         }
 
-        .subtitle {
-            color: #6b7280;
+        #controls {
+            background: white;
+            padding: 15px 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .control-group {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .control-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
             font-size: 14px;
-            margin-bottom: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #667eea;
+            color: white;
+        }
+
+        button:hover:not(:disabled) {
+            background: #5568d3;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .slider-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .slider-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #666;
+            min-width: 80px;
+        }
+
+        input[type="range"] {
+            flex: 1;
+            max-width: 200px;
+        }
+
+        .slider-value {
+            font-size: 14px;
+            font-weight: bold;
+            color: #667eea;
+            min-width: 60px;
+        }
+
+        #stats {
+            background: white;
+            padding: 15px 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .stat-icon {
+            font-size: 24px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: #666;
         }
 
         .status {
-            padding: 12px 15px;
-            border-radius: 10px;
-            margin-bottom: 16px;
-            font-size: 14px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
             font-weight: 500;
         }
 
@@ -65,754 +165,422 @@
         .status.active  { background: #d1fae5; color: #065f46; }
         .status.error   { background: #fee2e2; color: #991b1b; }
 
-        .button-group {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-bottom: 16px;
+        #map {
+            height: calc(100vh - 240px);
+            width: 100%;
         }
 
-        button {
-            flex: 1;
-            min-width: 150px;
-            border: none;
-            border-radius: 10px;
-            padding: 11px 16px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
+        .event-popup {
+            max-width: 300px;
         }
 
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none !important;
-            box-shadow: none !important;
-        }
-
-        .btn-primary   { background: #4f46e5; color: #ffffff; }
-        .btn-secondary { background: #10b981; color: #ffffff; }
-        .btn-danger    { background: #ef4444; color: #ffffff; }
-
-        .btn-primary:hover:not(:disabled) {
-            background: #4338ca;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 10px rgba(79, 70, 229, 0.4);
-        }
-
-        .btn-secondary:hover:not(:disabled) {
-            background: #059669;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 10px rgba(16, 185, 129, 0.4);
-        }
-
-        .btn-danger:hover:not(:disabled) {
-            background: #dc2626;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 10px rgba(239, 68, 68, 0.4);
-        }
-
-        /* 🔔 Animation de blink pour les boutons PENDANT le chargement */
-        .btn-loading {
-            animation: blinkButton 1s ease-in-out infinite;
-        }
-
-        @keyframes blinkButton {
-            0%, 100% { opacity: 1; transform: translateY(0); }
-            50%      { opacity: 0.4; transform: translateY(-1px); }
-        }
-
-        .section {
-            background: #f9fafb;
-            border-radius: 14px;
-            padding: 14px 16px;
-            margin-bottom: 14px;
-        }
-
-        .section h2 {
+        .event-popup h3 {
+            margin: 0 0 10px 0;
             font-size: 16px;
-            margin-bottom: 8px;
-            color: #111827;
+            color: #333;
+            line-height: 1.4;
         }
 
-        .info-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 6px 10px;
-            font-size: 13px;
-        }
-
-        .info-label { color: #6b7280; }
-        .info-value { color: #111827; font-family: monospace; text-align: right; }
-
-        .map-container {
-            margin-top: 9px;
-            border-radius: 10px;
-            overflow: hidden;
-            border: 1px solid #e5e7eb;
-        }
-
-        .map-container iframe {
-            width: 100%;
-            height: 260px;
-            border: 0;
-        }
-
-        .map-link {
+        .event-popup .date {
+            background: #667eea;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
             display: inline-block;
-            margin-top: 6px;
-            font-size: 13px;
-            text-decoration: none;
-            color: #4f46e5;
-            font-weight: 500;
-        }
-
-        .map-link:hover { text-decoration: underline; }
-
-        .events-list {
-            list-style: none;
-            margin-top: 10px;
-        }
-
-        .event-item {
-            background: #ffffff;
-            border-radius: 10px;
-            padding: 9px 11px;
-            margin-bottom: 10px;
-            border: 1px solid #e5e7eb;
-        }
-
-        .event-title {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 4px;
-            color: #111827;
-        }
-
-        .event-meta {
-            font-size: 12px;
-            color: #6b7280;
-            margin-bottom: 5px;
-        }
-
-        .event-links {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-bottom: 5px;
-        }
-
-        .event-link {
-            font-size: 12px;
-            text-decoration: none;
-            color: #2563eb;
-        }
-
-        .event-link:hover {
-            text-decoration: underline;
-        }
-
-        .events-map-container {
-            width: 100%;
-            height: 450px;
-            border-radius: 10px;
-            overflow: hidden;
-            border: 1px solid #e5e7eb;
-            margin-top: 10px;
-            margin-bottom: 16px;
-        }
-
-        .hint {
-            font-size: 12px;
-            color: #6b7280;
-            margin-top: 4px;
-        }
-
-        .slider-row {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
             margin-bottom: 8px;
         }
 
-        .slider-row label {
+        .event-popup .venue {
             font-size: 13px;
-            color: #374151;
+            color: #444;
+            margin-bottom: 4px;
         }
 
-        .slider-row input[type=range] {
-            width: 100%;
+        .event-popup .venue strong {
+            color: #667eea;
         }
 
-        @media (max-width: 640px) {
-            .info-grid { grid-template-columns: 1fr; }
-            .info-value { text-align: left; }
+        .event-popup .address {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 8px;
+        }
+
+        .event-popup .distance {
+            font-size: 12px;
+            color: #667eea;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .event-popup .link {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-size: 12px;
+            margin-top: 8px;
+            transition: background 0.3s;
+        }
+
+        .event-popup .link:hover {
+            background: #5568d3;
+        }
+
+        .leaflet-popup-content {
+            margin: 15px;
+        }
+
+        @media (max-width: 768px) {
+            #header h1 {
+                font-size: 22px;
+            }
+
+            #stats {
+                gap: 15px;
+            }
+
+            .stat-value {
+                font-size: 20px;
+            }
+
+            .control-group {
+                flex-direction: column;
+                align-items: flex-start;
+            }
         }
     </style>
 </head>
 <body>
-<div class="container">
-    <h1>📍 Localisation & événements à proximité</h1>
-    <p class="subtitle">
-        Le site utilise la position actuelle de ton téléphone pour afficher les événements OpenAgenda
-        en France entière, filtrés par distance et par date.
-    </p>
-
-    <!-- Statut global -->
-    <div id="status" class="status waiting">
-        ⏳ En attente de la position du téléphone…
+    <div id="header">
+        <h1>🗓️ Carte des Événements OpenAgenda</h1>
+        <p>Trouvez des événements près de chez vous ou dans une ville donnée</p>
     </div>
 
-    <!-- Boutons villes -->
-    <div class="button-group">
-        <button class="btn-secondary" onclick="onCityButtonClick('paris', this)">Paris</button>
-        <button class="btn-secondary" onclick="onCityButtonClick('toulouse', this)">Toulouse</button>
-    </div>
-
-    <!-- Bouton basé sur la position réelle du téléphone -->
-    <div class="button-group">
-        <button class="btn-primary" onclick="onNearbyButtonClick(this)">Événements à proximité</button>
-    </div>
-
-    <!-- Position actuelle (téléphone ou ville choisie) -->
-    <div class="section" id="currentLocationSection" style="display:none;">
-        <h2>Position actuelle (téléphone ou ville choisie)</h2>
-        <div class="info-grid">
-            <div class="info-label">Latitude</div>
-            <div class="info-value" id="currentLatitude">-</div>
-
-            <div class="info-label">Longitude</div>
-            <div class="info-value" id="currentLongitude">-</div>
-
-            <div class="info-label">Précision</div>
-            <div class="info-value" id="currentAccuracy">-</div>
-
-            <div class="info-label">Dernière mise à jour</div>
-            <div class="info-value" id="currentTimestamp">-</div>
-        </div>
-        <a id="currentMapLink" class="map-link" href="#" target="_blank" rel="noopener noreferrer">
-            📍 Ouvrir cette position dans Google Maps
-        </a>
-    </div>
-
-    <!-- Événements à proximité -->
-    <div class="section" id="eventsSection" style="display:none;">
-        <h2>Événements à proximité</h2>
-
-        <!-- Curseurs de réglage -->
-        <div class="slider-row">
-            <label>
-                Rayon : <strong><span id="radiusValue">30</span> km</strong>
-            </label>
-            <input type="range" id="radiusRange" min="10" max="1000" step="10" value="30">
+    <div id="controls">
+        <div class="control-group">
+            <div class="button-group">
+                <button onclick="getUserLocation()">📍 Ma position</button>
+                <button onclick="fetchNearbyEventsForCity('paris')">🗼 Paris</button>
+                <button onclick="fetchNearbyEventsForCity('toulouse')">🏛️ Toulouse</button>
+            </div>
         </div>
 
-        <div class="slider-row">
-            <label>
-                Fenêtre de temps : <strong>aujourd'hui + <span id="daysValue">2</span> jour(s)</strong>
-            </label>
-            <input type="range" id="daysRange" min="1" max="30" step="1" value="2">
+        <div class="control-group">
+            <div class="slider-group">
+                <span class="slider-label">Rayon:</span>
+                <input type="range" id="radiusRange" min="5" max="100" value="30" step="5">
+                <span class="slider-value"><span id="radiusValue">30</span> km</span>
+            </div>
+
+            <div class="slider-group">
+                <span class="slider-label">Période:</span>
+                <input type="range" id="daysRange" min="1" max="30" value="7" step="1">
+                <span class="slider-value"><span id="daysValue">7</span> jours</span>
+            </div>
         </div>
 
-        <!-- résumé : nombre d'événements trouvés -->
-        <p id="eventsSummary"
-           style="display:none; font-size:13px; color:#111827; font-weight:500; margin-bottom:6px;">
-        </p>
-
-        <p id="eventsEmpty" style="display:none; font-size:13px; color:#6b7280; margin-bottom:8px;">
-            Aucun événement trouvé dans ce périmètre pour la période choisie.
-        </p>
-
-        <!-- Carte unique pour tous les événements -->
-        <div id="eventsMap" class="events-map-container" style="display:none;"></div>
-
-        <!-- liste des événements trouvés -->
-        <ul id="eventsList" class="events-list"></ul>
-
-        <p class="hint">
-            Chaque événement affiché possède un lien vers OpenAgenda et Google&nbsp;Maps.
-            La carte interactive ci-dessus affiche tous les événements géolocalisés.
-        </p>
+        <div class="control-group">
+            <div class="status" id="status">🔵 En attente d'une recherche</div>
+        </div>
     </div>
-</div>
 
-<script>
-    const SERVER_URL = window.location.origin;
+    <div id="stats">
+        <div class="stat">
+            <span class="stat-icon">📍</span>
+            <div>
+                <div class="stat-value" id="event-count">0</div>
+                <div class="stat-label">Événements</div>
+            </div>
+        </div>
+        <div class="stat">
+            <span class="stat-icon">🏛️</span>
+            <div>
+                <div class="stat-value" id="venue-count">0</div>
+                <div class="stat-label">Lieux</div>
+            </div>
+        </div>
+        <div class="stat">
+            <span class="stat-icon">📅</span>
+            <div>
+                <div class="stat-value" id="agenda-count">0</div>
+                <div class="stat-label">Agendas</div>
+            </div>
+        </div>
+    </div>
 
-    // coordonnées fixes pour les villes
-    const CITY_COORDS = {
-        paris: {
-            label: 'Paris',
-            latitude: 48.8566,
-            longitude: 2.3522
-        },
-        toulouse: {
-            label: 'Toulouse',
-            latitude: 43.6045,
-            longitude: 1.4440
-        }
-    };
+    <div id="map"></div>
 
-    // valeurs courantes des curseurs
-    let currentRadiusKm = 30;
-    let currentDays = 2;
-    let currentPosition = null; // position actuelle (téléphone ou ville choisie)
-
-    // contexte courant (null, 'Paris', 'Toulouse', 'GPS')
-    let currentContextLabel = null;
-
-    // bouton en cours de chargement
-    let loadingButton = null;
-
-    // timeout pour le debounce des sliders
-    let sliderUpdateTimeout = null;
-    const SLIDER_DEBOUNCE_MS = 600;
-
-    // instance de la carte Leaflet
-    let eventsMap = null;
-    let eventsMarkers = [];
-    let searchRadiusCircle = null;
-    let markerCluster = null;
-
-    function updateStatus(message, type) {
-        const div = document.getElementById('status');
-        div.textContent = message;
-        div.className = 'status ' + type;
-    }
-
-    function initOrResetEventsMap(centerLat, centerLon, radiusKm) {
-        const mapDiv = document.getElementById('eventsMap');
-        mapDiv.style.display = 'block';
-
-        // Calculer le zoom approprié en fonction du rayon
-        let zoomLevel = 11; // Par défaut pour ~30km
-        if (radiusKm <= 10) zoomLevel = 13;
-        else if (radiusKm <= 20) zoomLevel = 12;
-        else if (radiusKm <= 50) zoomLevel = 11;
-        else if (radiusKm <= 100) zoomLevel = 10;
-        else zoomLevel = 9;
-
-        // Si la carte n'existe pas encore, la créer
-        if (!eventsMap) {
-            eventsMap = L.map('eventsMap').setView([centerLat, centerLon], zoomLevel);
-
-            // Ajouter les tuiles OpenStreetMap
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-                maxZoom: 19
-            }).addTo(eventsMap);
-
-            // Ajouter un contrôle d'échelle
-            L.control.scale({
-                metric: true,
-                imperial: false,
-                position: 'bottomleft'
-            }).addTo(eventsMap);
-        }
-
-        // Supprimer l'ancien cluster de marqueurs si existe
-        if (markerCluster) {
-            eventsMap.removeLayer(markerCluster);
-        }
-
-        // Supprimer l'ancien cercle de rayon si existe
-        if (searchRadiusCircle) {
-            eventsMap.removeLayer(searchRadiusCircle);
-        }
-
-        // Recentrer la carte
-        eventsMap.setView([centerLat, centerLon], zoomLevel);
-
-        // Ajouter un cercle montrant le rayon de recherche
-        searchRadiusCircle = L.circle([centerLat, centerLon], {
-            radius: radiusKm * 1000,
-            color: '#4f46e5',
-            fillColor: '#4f46e5',
-            fillOpacity: 0.1,
-            weight: 2
-        }).addTo(eventsMap);
-
-        // Créer un nouveau cluster de marqueurs
-        markerCluster = L.markerClusterGroup({
-            chunkedLoading: true,
-            spiderfyOnMaxZoom: true,
-            showCoverageOnHover: false,
-            zoomToBoundsOnClick: true
-        });
-
-        eventsMarkers = [];
-    }
-
-    function updateCurrentLocationDisplay(position) {
-        const lat = position.coords.latitude;
-        const lon = position.coords.longitude;
-        const acc = position.coords.accuracy;
-
-        document.getElementById('currentLatitude').textContent = lat.toFixed(6);
-        document.getElementById('currentLongitude').textContent = lon.toFixed(6);
-        document.getElementById('currentAccuracy').textContent =
-            acc != null ? Math.round(acc) + ' m' : '-';
-        document.getElementById('currentTimestamp').textContent =
-            new Date().toLocaleString();
-
-        const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
-        document.getElementById('currentMapLink').href = mapsUrl;
-
-        document.getElementById('currentLocationSection').style.display = 'block';
-    }
-
-    // Création d'un "fake" objet position à partir de coordonnées fixes
-    function makeFakePosition(lat, lon) {
-        return {
-            coords: {
-                latitude: lat,
-                longitude: lon,
-                accuracy: null
-            }
+    <script>
+        // Configuration
+        const SERVER_URL = 'http://localhost:5000';
+        
+        const CITY_COORDS = {
+            'paris': { latitude: 48.8566, longitude: 2.3522, label: 'Paris' },
+            'toulouse': { latitude: 43.6047, longitude: 1.4442, label: 'Toulouse' }
         };
-    }
 
-    // Helper pour calculer "du ... au ..." à partir d'aujourd'hui
-    function getDateRangeTextFromNow(days) {
-        const today = new Date();
-        const end = new Date();
-        end.setDate(today.getDate() + days);
-        return {
-            start: today.toLocaleDateString('fr-FR'),
-            end: end.toLocaleDateString('fr-FR')
-        };
-    }
+        // Variables globales
+        let map = null;
+        let currentMarkerCluster = null;
+        let allMarkers = [];
+        let currentPosition = null;
+        let currentRadiusKm = 30;
+        let currentDays = 7;
+        let currentContextLabel = '';
+        let sliderUpdateTimeout = null;
+        const SLIDER_DEBOUNCE_MS = 800;
 
-    // 🔔 Start / stop blink du bouton
-    function startButtonLoading(buttonEl) {
-        // enlève le blink sur un ancien bouton au cas où
-        if (loadingButton && loadingButton !== buttonEl) {
-            loadingButton.classList.remove('btn-loading');
-        }
-        loadingButton = buttonEl;
-        if (loadingButton) {
-            loadingButton.classList.add('btn-loading');
-        }
-    }
+        // Initialiser la carte
+        function initMap() {
+            if (!map) {
+                map = L.map('map').setView([46.603354, 1.888334], 6); // Centre de la France
 
-    function stopButtonLoading() {
-        if (loadingButton) {
-            loadingButton.classList.remove('btn-loading');
-            loadingButton = null;
-        }
-    }
-
-    // Wrappers clics pour déclencher blink + logique
-    function onCityButtonClick(cityKey, buttonEl) {
-        startButtonLoading(buttonEl);
-        fetchNearbyEventsForCity(cityKey)
-            .finally(() => {
-                stopButtonLoading();
-            });
-    }
-
-    function onNearbyButtonClick(buttonEl) {
-        startButtonLoading(buttonEl);
-        fetchNearbyEventsWithCurrentPosition()
-            .finally(() => {
-                // la géoloc + fetch utilisent les callbacks, mais on stoppe ici au cas où
-                stopButtonLoading();
-            });
-    }
-
-    // 🔹 Init : au démarrage on essaie déjà d'obtenir la position
-    function initGeolocationOnLoad() {
-        if (!navigator.geolocation) {
-            updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
-            return;
-        }
-
-        updateStatus('🟡 Recherche de la position du téléphone…', 'active');
-
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                currentPosition = position;
-                currentContextLabel = 'GPS';
-                updateCurrentLocationDisplay(position);
-                updateStatus('🟢 Position trouvée. Tu peux maintenant chercher des événements à proximité.', 'active');
-            },
-            (error) => {
-                console.error(error);
-                updateStatus('🔴 Erreur de géolocalisation : ' + error.message, 'error');
-            },
-            {
-                enableHighAccuracy: true,
-                maximumAge: 0,
-                timeout: 10000
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    maxZoom: 19
+                }).addTo(map);
             }
-        );
-    }
+        }
 
-    // 🔹 Bouton "Événements à proximité" = toujours position du téléphone (nouvelle géoloc)
-    function fetchNearbyEventsWithCurrentPosition() {
-        return new Promise((resolve, reject) => {
+        // Mettre à jour le statut
+        function updateStatus(message, type = 'waiting') {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = 'status ' + type;
+        }
+
+        // Mettre à jour les statistiques
+        function updateStats(events) {
+            const uniqueVenues = new Set(events.map(e => e.locationName).filter(v => v));
+            const uniqueAgendas = new Set(events.map(e => e.agendaTitle).filter(a => a));
+
+            document.getElementById('event-count').textContent = events.length;
+            document.getElementById('venue-count').textContent = uniqueVenues.size;
+            document.getElementById('agenda-count').textContent = uniqueAgendas.size;
+        }
+
+        // Formater une date ISO en format lisible
+        function formatDate(isoString) {
+            if (!isoString) return 'Date non précisée';
+            try {
+                const date = new Date(isoString);
+                return date.toLocaleDateString('fr-FR', { 
+                    day: '2-digit', 
+                    month: '2-digit', 
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (e) {
+                return 'Date non précisée';
+            }
+        }
+
+        // Afficher les événements sur la carte
+        function displayEventsOnMap(events, centerLat, centerLon, radiusKm) {
+            // Supprimer l'ancien cluster
+            if (currentMarkerCluster) {
+                map.removeLayer(currentMarkerCluster);
+            }
+
+            // Créer un nouveau cluster
+            currentMarkerCluster = L.markerClusterGroup({
+                chunkedLoading: true,
+                spiderfyOnMaxZoom: true,
+                showCoverageOnHover: false,
+                zoomToBoundsOnClick: true
+            });
+
+            allMarkers = [];
+
+            // Ajouter un cercle pour visualiser le rayon de recherche
+            if (centerLat && centerLon && radiusKm) {
+                L.circle([centerLat, centerLon], {
+                    radius: radiusKm * 1000, // en mètres
+                    color: '#667eea',
+                    fillColor: '#667eea',
+                    fillOpacity: 0.1,
+                    weight: 2
+                }).addTo(map);
+
+                // Marqueur pour le centre de recherche
+                L.marker([centerLat, centerLon], {
+                    icon: L.divIcon({
+                        className: 'center-marker',
+                        html: '<div style="background: #ef4444; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>',
+                        iconSize: [20, 20]
+                    })
+                }).addTo(map).bindPopup('<strong>Centre de recherche</strong>');
+            }
+
+            // Créer les marqueurs pour chaque événement
+            events.forEach(event => {
+                if (!event.latitude || !event.longitude) return;
+
+                const marker = L.marker([event.latitude, event.longitude]);
+
+                // Créer le contenu du popup
+                let popupContent = `
+                    <div class="event-popup">
+                        <h3>${event.title || 'Événement sans titre'}</h3>
+                        ${event.begin ? `<div class="date">📅 ${formatDate(event.begin)}</div>` : ''}
+                        ${event.locationName ? `<div class="venue"><strong>📍 Lieu :</strong> ${event.locationName}</div>` : ''}
+                        ${event.address ? `<div class="address">${event.address}${event.city ? ', ' + event.city : ''}</div>` : ''}
+                        ${event.distanceKm !== undefined ? `<div class="distance">📏 Distance : ${event.distanceKm} km</div>` : ''}
+                        ${event.agendaTitle ? `<div class="address">📚 ${event.agendaTitle}</div>` : ''}
+                        ${event.openagendaUrl ? `<a href="${event.openagendaUrl}" target="_blank" class="link">Voir les détails →</a>` : ''}
+                    </div>
+                `;
+
+                marker.bindPopup(popupContent, { maxWidth: 320 });
+
+                allMarkers.push({ marker: marker, event: event });
+                currentMarkerCluster.addLayer(marker);
+            });
+
+            // Ajouter le cluster à la carte
+            map.addLayer(currentMarkerCluster);
+
+            // Ajuster la vue pour montrer tous les marqueurs
+            if (allMarkers.length > 0) {
+                const group = L.featureGroup(allMarkers.map(m => m.marker));
+                map.fitBounds(group.getBounds().pad(0.1));
+            } else if (centerLat && centerLon) {
+                map.setView([centerLat, centerLon], 11);
+            }
+
+            // Mettre à jour les statistiques
+            updateStats(events);
+        }
+
+        // Obtenir la position de l'utilisateur
+        function getUserLocation() {
+            updateStatus('🔍 Recherche de votre position...', 'active');
+
             if (!navigator.geolocation) {
-                updateStatus('🔴 Géolocalisation non supportée par ce navigateur', 'error');
-                reject(new Error('Geolocation not supported'));
+                updateStatus('❌ La géolocalisation n\'est pas supportée par votre navigateur', 'error');
                 return;
             }
-
-            updateStatus('🟡 Recherche de la position du téléphone…', 'active');
 
             navigator.geolocation.getCurrentPosition(
-                async (position) => {
-                    try {
-                        currentPosition = position;
-                        currentContextLabel = 'GPS';
-                        updateCurrentLocationDisplay(position);
-                        await fetchNearbyEvents(position);
-                        resolve();
-                    } catch (e) {
-                        reject(e);
-                    }
+                (position) => {
+                    currentPosition = position;
+                    currentContextLabel = 'à proximité';
+                    fetchNearbyEvents(position);
                 },
                 (error) => {
-                    console.error(error);
-                    updateStatus('🔴 Erreur de géolocalisation : ' + error.message, 'error');
-                    reject(error);
-                },
-                {
-                    enableHighAccuracy: true,
-                    maximumAge: 0,
-                    timeout: 10000
+                    console.error('Erreur de géolocalisation:', error);
+                    updateStatus('❌ Impossible d\'obtenir votre position', 'error');
                 }
             );
-        });
-    }
+        }
 
-    // 🔹 Boutons Paris / Toulouse
-    async function fetchNearbyEventsForCity(cityKey) {
-        const city = CITY_COORDS[cityKey];
-        if (!city) return;
+        // Rechercher des événements pour une ville spécifique
+        function fetchNearbyEventsForCity(cityKey) {
+            const city = CITY_COORDS[cityKey];
+            if (!city) return;
 
-        currentContextLabel = city.label;
+            currentContextLabel = city.label;
+            currentPosition = {
+                coords: {
+                    latitude: city.latitude,
+                    longitude: city.longitude
+                }
+            };
 
-        updateStatus(`🔍 Recherche des événements sur ${city.label}…`, 'active');
+            fetchNearbyEvents(currentPosition);
+        }
 
-        const fakePos = makeFakePosition(city.latitude, city.longitude);
-        currentPosition = fakePos;
-        updateCurrentLocationDisplay(fakePos);
-
-        await fetchNearbyEvents(fakePos);
-
-        updateStatus(`🟢 Événements chargés pour ${city.label}`, 'active');
-    }
-
-    async function fetchNearbyEvents(position) {
-        try {
+        // Récupérer les événements à proximité
+        async function fetchNearbyEvents(position) {
             if (!position) {
-                updateStatus('🔴 Position non disponible', 'error');
+                updateStatus('❌ Position non disponible', 'error');
                 return;
             }
 
-            // Texte de lieu dans la phrase ("à Paris", "à Toulouse", "à proximité")
-            let placeText = 'à proximité';
-            if (currentContextLabel === 'Paris') {
-                placeText = 'à Paris';
-            } else if (currentContextLabel === 'Toulouse') {
-                placeText = 'à Toulouse';
+            try {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+
+                let placeText = currentContextLabel || 'à proximité';
+                updateStatus(`🔍 Recherche des événements ${placeText} dans un rayon de ${currentRadiusKm} km...`, 'active');
+
+                const params = new URLSearchParams();
+                params.append('lat', lat);
+                params.append('lon', lon);
+                params.append('radiusKm', currentRadiusKm);
+                params.append('days', currentDays);
+
+                const res = await fetch(`${SERVER_URL}/api/events/nearby?` + params.toString());
+                const result = await res.json();
+
+                console.log('Résultat API:', result);
+
+                if (!res.ok || result.status !== 'success') {
+                    updateStatus('❌ ' + (result.message || 'Erreur lors de la récupération des événements'), 'error');
+                    return;
+                }
+
+                const events = result.events || [];
+                
+                if (events.length === 0) {
+                    updateStatus(`🔍 Aucun événement trouvé ${placeText} dans un rayon de ${currentRadiusKm} km`, 'waiting');
+                    displayEventsOnMap([], lat, lon, currentRadiusKm);
+                    return;
+                }
+
+                displayEventsOnMap(events, lat, lon, currentRadiusKm);
+                updateStatus(`✅ ${events.length} événement(s) trouvé(s) ${placeText}`, 'active');
+
+            } catch (e) {
+                console.error('Erreur:', e);
+                updateStatus('❌ Erreur lors du chargement des événements', 'error');
             }
+        }
 
-            const loadingRange = getDateRangeTextFromNow(currentDays);
-            updateStatus(
-                `🟡 Chargement des événements ${placeText} dans un rayon de ${currentRadiusKm} km, ` +
-                `du ${loadingRange.start} au ${loadingRange.end}…`,
-                'active'
-            );
-
-            const lat = position.coords.latitude;
-            const lon = position.coords.longitude;
-
-            const params = new URLSearchParams();
-            params.append('lat', lat);
-            params.append('lon', lon);
-            params.append('radiusKm', currentRadiusKm);
-            params.append('days', currentDays);
-
-            const res = await fetch(`${SERVER_URL}/api/events/nearby?` + params.toString());
-            const result = await res.json();
-
-            console.log('DEBUG /api/events/nearby result:', result);
-
-            const section = document.getElementById('eventsSection');
-            const list = document.getElementById('eventsList');
-            const empty = document.getElementById('eventsEmpty');
-            const summary = document.getElementById('eventsSummary');
-            const mapDiv = document.getElementById('eventsMap');
-
-            list.innerHTML = '';
-            empty.style.display = 'none';
-            summary.style.display = 'none';
-            mapDiv.style.display = 'none';
-
-            if (!res.ok || result.status !== 'success') {
-                section.style.display = 'block';
-                empty.textContent = result.message || 'Erreur lors de la récupération des événements.';
-                empty.style.display = 'block';
-                updateStatus('🔴 Impossible de récupérer les événements', 'error');
-                return;
+        // Planification de la mise à jour après déplacement des sliders
+        function scheduleSliderUpdate() {
+            if (!currentPosition) return;
+            
+            if (sliderUpdateTimeout) {
+                clearTimeout(sliderUpdateTimeout);
             }
+            
+            sliderUpdateTimeout = setTimeout(() => {
+                fetchNearbyEvents(currentPosition);
+            }, SLIDER_DEBOUNCE_MS);
+        }
 
-            const events = result.events || [];
-            const radiusKm = result.radiusKm ?? currentRadiusKm;
-            const days = result.days ?? currentDays;
-            const count = result.count ?? events.length;
+        // Configuration des sliders
+        function setupSliders() {
+            const radiusRange = document.getElementById('radiusRange');
+            const daysRange = document.getElementById('daysRange');
+            const radiusValue = document.getElementById('radiusValue');
+            const daysValue = document.getElementById('daysValue');
 
-            const range = getDateRangeTextFromNow(days);
-
-            if (events.length === 0) {
-                section.style.display = 'block';
-                empty.style.display = 'block';
-                updateStatus(
-                    `🟡 Aucun événement trouvé ${placeText} dans un rayon de ${radiusKm} km, ` +
-                    `du ${range.start} au ${range.end}`,
-                    'waiting'
-                );
-                return;
-            }
-
-            // Initialiser la carte avec le centre de recherche et le rayon
-            initOrResetEventsMap(lat, lon, radiusKm);
-
-            summary.textContent =
-                `${count} événement(s) trouvé(s) ${placeText} dans un rayon de ${radiusKm} km, ` +
-                `du ${range.start} au ${range.end}.`;
-            summary.style.display = 'block';
-
-            events.forEach((ev, index) => {
-                const li = document.createElement('li');
-                li.className = 'event-item';
-
-                const title = document.createElement('div');
-                title.className = 'event-title';
-                title.textContent = ev.title || 'Événement sans titre';
-                li.appendChild(title);
-
-                const meta = document.createElement('div');
-                meta.className = 'event-meta';
-
-                const begin = ev.begin ? new Date(ev.begin).toLocaleString() : 'Date non précisée';
-
-                const whereParts = [];
-                if (ev.locationName) whereParts.push(ev.locationName);
-                if (ev.address)      whereParts.push(ev.address);
-                if (ev.city)         whereParts.push(ev.city);
-
-                let metaText = `${begin} — ${whereParts.join(' · ') || 'Lieu non précisé'}`;
-                if (ev.distanceKm != null) {
-                    metaText += ` · ${ev.distanceKm} km`;
-                }
-                meta.textContent = metaText;
-                li.appendChild(meta);
-
-                const links = document.createElement('div');
-                links.className = 'event-links';
-
-                if (ev.openagendaUrl) {
-                    const oaLink = document.createElement('a');
-                    oaLink.className = 'event-link';
-                    oaLink.href = ev.openagendaUrl;
-                    oaLink.target = '_blank';
-                    oaLink.rel = 'noopener noreferrer';
-                    oaLink.textContent = 'Voir sur OpenAgenda';
-                    links.appendChild(oaLink);
-                }
-
-                if (ev.latitude != null && ev.longitude != null) {
-                    const gmapsLink = document.createElement('a');
-                    gmapsLink.className = 'event-link';
-                    gmapsLink.href = `https://www.google.com/maps?q=${ev.latitude},${ev.longitude}`;
-                    gmapsLink.target = '_blank';
-                    gmapsLink.rel = 'noopener noreferrer';
-                    gmapsLink.textContent = 'Voir dans Google Maps';
-                    links.appendChild(gmapsLink);
-                }
-
-                if (links.children.length > 0) {
-                    li.appendChild(links);
-                }
-
-                list.appendChild(li);
-
-                // Ajouter un marqueur sur la carte pour cet événement
-                if (ev.latitude != null && ev.longitude != null) {
-                    const marker = L.marker([ev.latitude, ev.longitude]);
-
-                    // Créer le popup avec les infos de l'événement
-                    const popupContent = `
-                        <div style="min-width: 200px;">
-                            <strong style="font-size: 13px;">${ev.title}</strong><br>
-                            <span style="font-size: 11px; color: #6b7280;">
-                                ${whereParts.join(' · ') || 'Lieu non précisé'}<br>
-                                ${ev.distanceKm != null ? ev.distanceKm + ' km' : ''}
-                            </span><br>
-                            ${ev.openagendaUrl ? `<a href="${ev.openagendaUrl}" target="_blank" rel="noopener noreferrer" style="font-size: 11px;">Voir sur OpenAgenda</a>` : ''}
-                        </div>
-                    `;
-                    marker.bindPopup(popupContent);
-
-                    // Ajouter le marqueur au cluster
-                    markerCluster.addLayer(marker);
-                    eventsMarkers.push(marker);
-                }
+            radiusRange.addEventListener('input', () => {
+                currentRadiusKm = parseInt(radiusRange.value, 10);
+                radiusValue.textContent = currentRadiusKm;
+                scheduleSliderUpdate();
             });
 
-            // Ajouter le cluster de marqueurs à la carte
-            eventsMap.addLayer(markerCluster);
-
-            section.style.display = 'block';
-            updateStatus(
-                `🟢 Événements chargés ${placeText} dans un rayon de ${radiusKm} km, du ${range.start} au ${range.end}.`,
-                'active'
-            );
-        } catch (e) {
-            console.error(e);
-            updateStatus('🔴 Erreur lors du chargement des événements à proximité', 'error');
+            daysRange.addEventListener('input', () => {
+                currentDays = parseInt(daysRange.value, 10);
+                daysValue.textContent = currentDays;
+                scheduleSliderUpdate();
+            });
         }
-    }
 
-    // 🔹 planification de la mise à jour après déplacement des sliders
-    function scheduleSliderUpdate() {
-        if (!currentPosition) {
-            return;
-        }
-        if (sliderUpdateTimeout) {
-            clearTimeout(sliderUpdateTimeout);
-        }
-        sliderUpdateTimeout = setTimeout(() => {
-            fetchNearbyEvents(currentPosition);
-        }, SLIDER_DEBOUNCE_MS);
-    }
-
-    function setupSliders() {
-        const radiusRange = document.getElementById('radiusRange');
-        const daysRange = document.getElementById('daysRange');
-        const radiusValue = document.getElementById('radiusValue');
-        const daysValue = document.getElementById('daysValue');
-
-        radiusRange.addEventListener('input', () => {
-            currentRadiusKm = parseInt(radiusRange.value, 10);
-            radiusValue.textContent = currentRadiusKm;
-            scheduleSliderUpdate();
+        // Initialisation au chargement de la page
+        window.addEventListener('load', () => {
+            initMap();
+            setupSliders();
+            updateStatus('🔵 Cliquez sur un bouton pour rechercher des événements', 'waiting');
         });
-
-        daysRange.addEventListener('input', () => {
-            currentDays = parseInt(daysRange.value, 10);
-            daysValue.textContent = currentDays;
-            scheduleSliderUpdate();
-        });
-    }
-
-    window.addEventListener('load', () => {
-        setupSliders();
-        initGeolocationOnLoad();
-    });
-</script>
+    </script>
 </body>
 </html>
