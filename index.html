@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <title>Localisation & événements OpenAgenda</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin=""/>
+
+    <!-- Leaflet JavaScript -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin=""></script>
+
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -195,17 +206,14 @@
             text-decoration: underline;
         }
 
-        .event-map {
-            border-radius: 8px;
+        .events-map-container {
+            width: 100%;
+            height: 450px;
+            border-radius: 10px;
             overflow: hidden;
             border: 1px solid #e5e7eb;
-            margin-top: 4px;
-        }
-
-        .event-map iframe {
-            width: 100%;
-            height: 180px;
-            border: 0;
+            margin-top: 10px;
+            margin-bottom: 16px;
         }
 
         .hint {
@@ -309,12 +317,15 @@
             Aucun événement trouvé dans ce périmètre pour la période choisie.
         </p>
 
+        <!-- Carte unique pour tous les événements -->
+        <div id="eventsMap" class="events-map-container" style="display:none;"></div>
+
         <!-- liste des événements trouvés -->
         <ul id="eventsList" class="events-list"></ul>
 
         <p class="hint">
-            Chaque événement affiché possède un lien vers OpenAgenda et Google&nbsp;Maps,
-            et une petite carte intégrée quand les coordonnées sont disponibles.
+            Chaque événement affiché possède un lien vers OpenAgenda et Google&nbsp;Maps.
+            La carte interactive ci-dessus affiche tous les événements géolocalisés.
         </p>
     </div>
 </div>
@@ -351,10 +362,44 @@
     let sliderUpdateTimeout = null;
     const SLIDER_DEBOUNCE_MS = 600;
 
+    // instance de la carte Leaflet
+    let eventsMap = null;
+    let eventsMarkers = [];
+
     function updateStatus(message, type) {
         const div = document.getElementById('status');
         div.textContent = message;
         div.className = 'status ' + type;
+    }
+
+    function initOrResetEventsMap(centerLat, centerLon) {
+        const mapDiv = document.getElementById('eventsMap');
+
+        // Supprimer les anciens marqueurs
+        eventsMarkers.forEach(marker => {
+            if (eventsMap) {
+                eventsMap.removeLayer(marker);
+            }
+        });
+        eventsMarkers = [];
+
+        // Si la carte n'existe pas encore, la créer
+        if (!eventsMap) {
+            mapDiv.style.display = 'block';
+            eventsMap = L.map('eventsMap').setView([centerLat, centerLon], 11);
+
+            // Ajouter les tuiles OpenStreetMap
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 19
+            }).addTo(eventsMap);
+        } else {
+            // Recentrer la carte
+            mapDiv.style.display = 'block';
+            eventsMap.setView([centerLat, centerLon], 11);
+        }
+
+        return eventsMap;
     }
 
     function updateCurrentLocationDisplay(position) {
@@ -557,10 +602,12 @@
             const list = document.getElementById('eventsList');
             const empty = document.getElementById('eventsEmpty');
             const summary = document.getElementById('eventsSummary');
+            const mapDiv = document.getElementById('eventsMap');
 
             list.innerHTML = '';
             empty.style.display = 'none';
             summary.style.display = 'none';
+            mapDiv.style.display = 'none';
 
             if (!res.ok || result.status !== 'success') {
                 section.style.display = 'block';
@@ -587,6 +634,9 @@
                 );
                 return;
             }
+
+            // Initialiser la carte avec le centre de recherche
+            initOrResetEventsMap(lat, lon);
 
             summary.textContent =
                 `${count} événement(s) trouvé(s) ${placeText} dans un rayon de ${radiusKm} km, ` +
@@ -646,22 +696,34 @@
                     li.appendChild(links);
                 }
 
-                if (ev.latitude != null && ev.longitude != null && index < 10) {
-                    const mapDiv = document.createElement('div');
-                    mapDiv.className = 'event-map';
-
-                    const iframe = document.createElement('iframe');
-                    iframe.loading = 'lazy';
-                    iframe.allowFullscreen = true;
-                    iframe.referrerPolicy = 'no-referrer-when-downgrade';
-                    iframe.src = `https://www.google.com/maps?q=${ev.latitude},${ev.longitude}&z=11&output=embed`;
-
-                    mapDiv.appendChild(iframe);
-                    li.appendChild(mapDiv);
-                }
-
                 list.appendChild(li);
+
+                // Ajouter un marqueur sur la carte pour cet événement
+                if (ev.latitude != null && ev.longitude != null) {
+                    const marker = L.marker([ev.latitude, ev.longitude]).addTo(eventsMap);
+
+                    // Créer le popup avec les infos de l'événement
+                    const popupContent = `
+                        <div style="min-width: 200px;">
+                            <strong style="font-size: 13px;">${ev.title}</strong><br>
+                            <span style="font-size: 11px; color: #6b7280;">
+                                ${whereParts.join(' · ') || 'Lieu non précisé'}<br>
+                                ${ev.distanceKm != null ? ev.distanceKm + ' km' : ''}
+                            </span><br>
+                            ${ev.openagendaUrl ? `<a href="${ev.openagendaUrl}" target="_blank" rel="noopener noreferrer" style="font-size: 11px;">Voir sur OpenAgenda</a>` : ''}
+                        </div>
+                    `;
+                    marker.bindPopup(popupContent);
+
+                    eventsMarkers.push(marker);
+                }
             });
+
+            // Ajuster la vue de la carte pour montrer tous les marqueurs
+            if (eventsMarkers.length > 0) {
+                const group = L.featureGroup(eventsMarkers);
+                eventsMap.fitBounds(group.getBounds().pad(0.1));
+            }
 
             section.style.display = 'block';
             updateStatus(
