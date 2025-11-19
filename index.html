@@ -315,8 +315,8 @@
     <div id="map"></div>
 
     <script>
-        // Configuration
-        const SERVER_URL = 'http://localhost:5000';
+        // Configuration - Serveur hébergé sur Render
+        const SERVER_URL = 'https://gedeon-2.onrender.com';
         
         const CITY_COORDS = {
             'paris': { latitude: 48.8566, longitude: 2.3522, label: 'Paris' },
@@ -507,7 +507,7 @@
                 const lon = position.coords.longitude;
 
                 let placeText = currentContextLabel || 'à proximité';
-                updateStatus(`🔍 Recherche des événements ${placeText} dans un rayon de ${currentRadiusKm} km...`, 'active');
+                updateStatus(`🔍 Connexion au serveur... (peut prendre 30-60s si le serveur était en veille)`, 'active');
 
                 const params = new URLSearchParams();
                 params.append('lat', lat);
@@ -515,7 +515,18 @@
                 params.append('radiusKm', currentRadiusKm);
                 params.append('days', currentDays);
 
-                const res = await fetch(`${SERVER_URL}/api/events/nearby?` + params.toString());
+                // Timeout de 90 secondes pour les serveurs Render en veille
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 90000);
+
+                updateStatus(`🔍 Recherche des événements ${placeText} dans un rayon de ${currentRadiusKm} km...`, 'active');
+
+                const res = await fetch(`${SERVER_URL}/api/events/nearby?` + params.toString(), {
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+
                 const result = await res.json();
 
                 console.log('Résultat API:', result);
@@ -537,8 +548,26 @@
                 updateStatus(`✅ ${events.length} événement(s) trouvé(s) ${placeText}`, 'active');
 
             } catch (e) {
-                console.error('Erreur:', e);
-                updateStatus('❌ Erreur lors du chargement des événements', 'error');
+                console.error('Erreur complète:', e);
+                
+                if (e.name === 'AbortError') {
+                    updateStatus('❌ Timeout: Le serveur met trop de temps à répondre (>90s)', 'error');
+                } else {
+                    updateStatus('❌ Erreur: ' + e.message, 'error');
+                }
+                
+                // Message d'erreur détaillé
+                let errorMsg = 'Erreur lors du chargement:\n\n' + e.message;
+                
+                if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+                    errorMsg += '\n\nCauses possibles:\n' +
+                        '1. Le serveur Render est en veille (première requête peut prendre 30-60s)\n' +
+                        '2. Problème de connexion réseau\n' +
+                        '3. CORS non configuré correctement\n\n' +
+                        'Conseil: Réessayez dans quelques secondes si le serveur était en veille.';
+                }
+                
+                console.error('Détails:', errorMsg);
             }
         }
 
