@@ -741,10 +741,22 @@
                 }
             });
 
-            // Ajuster la vue de la carte pour montrer tous les marqueurs
+            // Ajuster la vue de la carte pour montrer le cercle de rayon ET les marqueurs
             if (eventsMarkers.length > 0) {
-                const group = L.featureGroup(eventsMarkers);
-                eventsMap.fitBounds(group.getBounds().pad(0.1));
+                // Créer un groupe avec les marqueurs ET le cercle
+                const group = L.featureGroup([...eventsMarkers, searchRadiusCircle]);
+                eventsMap.fitBounds(group.getBounds(), {
+                    padding: [20, 20],
+                    maxZoom: 12,  // Ne pas zoomer plus près que ce niveau
+                    minZoom: 6    // Ne pas zoomer plus loin que ce niveau
+                });
+            } else {
+                // Si pas de marqueurs, montrer au moins le cercle de rayon
+                eventsMap.fitBounds(searchRadiusCircle.getBounds(), {
+                    padding: [20, 20],
+                    maxZoom: 12,
+                    minZoom: 6
+                });
             }
 
             section.style.display = 'block';
