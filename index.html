@@ -257,7 +257,7 @@
 <body>
     <div id="header">
         <h1>🗓️ Carte des Événements OpenAgenda</h1>
-        <p>Trouvez des événements près de chez vous ou dans une ville donnée</p>
+        <p>Trouvez des événements près de chez vous ou dans une ville donnée (France uniquement)</p>
     </div>
 
     <div id="controls">
@@ -479,13 +479,44 @@
 
             navigator.geolocation.getCurrentPosition(
                 (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    
+                    // Vérifier si la position est en France (approximativement)
+                    const isInFrance = (lat >= 41 && lat <= 51) && (lon >= -5 && lon <= 10);
+                    
+                    if (!isInFrance) {
+                        updateStatus('⚠️ Position détectée hors de France', 'error');
+                        alert(`Position détectée : ${lat.toFixed(4)}, ${lon.toFixed(4)}\n\n` +
+                              `⚠️ Cette application recherche uniquement des événements en France.\n\n` +
+                              `Vous êtes actuellement en dehors de la France métropolitaine.\n` +
+                              `Utilisez les boutons "Paris" ou "Toulouse" pour tester l'application.`);
+                        return;
+                    }
+                    
                     currentPosition = position;
                     currentContextLabel = 'à proximité';
                     fetchNearbyEvents(position);
                 },
                 (error) => {
                     console.error('Erreur de géolocalisation:', error);
-                    updateStatus('❌ Impossible d\'obtenir votre position', 'error');
+                    let errorMsg = '❌ ';
+                    
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            errorMsg += 'Permission de géolocalisation refusée';
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            errorMsg += 'Position non disponible';
+                            break;
+                        case error.TIMEOUT:
+                            errorMsg += 'Délai de géolocalisation dépassé';
+                            break;
+                        default:
+                            errorMsg += 'Erreur de géolocalisation';
+                    }
+                    
+                    updateStatus(errorMsg, 'error');
                 }
             );
         }
