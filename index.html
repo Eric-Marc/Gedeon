@@ -632,6 +632,9 @@
                 sliderUpdateTimeout = null;
             }
 
+            // Positionner la carte immédiatement sur la ville
+            map.setView([city.latitude, city.longitude], 12);
+
             currentContextLabel = city.label;
             currentPosition = {
                 coords: {
