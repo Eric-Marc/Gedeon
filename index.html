@@ -482,15 +482,29 @@
                     const lat = position.coords.latitude;
                     const lon = position.coords.longitude;
                     
+                    // Afficher la position sur la carte d'abord
+                    map.setView([lat, lon], 12);
+                    
+                    // Ajouter un marqueur temporaire pour montrer la position
+                    const tempMarker = L.marker([lat, lon], {
+                        icon: L.divIcon({
+                            className: 'user-position-marker',
+                            html: '<div style="background: #ef4444; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>',
+                            iconSize: [20, 20]
+                        })
+                    }).addTo(map).bindPopup(`<strong>Votre position</strong><br>${lat.toFixed(4)}, ${lon.toFixed(4)}`).openPopup();
+                    
                     // Vérifier si la position est en France (approximativement)
                     const isInFrance = (lat >= 41 && lat <= 51) && (lon >= -5 && lon <= 10);
                     
                     if (!isInFrance) {
                         updateStatus('⚠️ Position détectée hors de France', 'error');
-                        alert(`Position détectée : ${lat.toFixed(4)}, ${lon.toFixed(4)}\n\n` +
-                              `⚠️ Cette application recherche uniquement des événements en France.\n\n` +
-                              `Vous êtes actuellement en dehors de la France métropolitaine.\n` +
-                              `Utilisez les boutons "Paris" ou "Toulouse" pour tester l'application.`);
+                        setTimeout(() => {
+                            alert(`📍 Position détectée : ${lat.toFixed(4)}, ${lon.toFixed(4)}\n\n` +
+                                  `⚠️ Cette application recherche uniquement des événements en France.\n\n` +
+                                  `Vous êtes actuellement en dehors de la France métropolitaine.\n` +
+                                  `Utilisez les boutons "🗼 Paris" ou "🏛️ Toulouse" pour tester l'application avec des événements réels.`);
+                        }, 500);
                         return;
                     }
                     
