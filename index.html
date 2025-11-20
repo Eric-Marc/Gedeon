@@ -159,11 +159,27 @@
             border-radius: 6px;
             font-size: 13px;
             font-weight: 500;
+            transition: all 0.3s;
         }
 
         .status.waiting { background: #fef3c7; color: #92400e; }
         .status.active  { background: #d1fae5; color: #065f46; }
         .status.error   { background: #fee2e2; color: #991b1b; }
+        
+        .status.loading {
+            animation: blinkStatus 1s ease-in-out infinite;
+        }
+
+        @keyframes blinkStatus {
+            0%, 100% { 
+                opacity: 1; 
+                transform: scale(1);
+            }
+            50% { 
+                opacity: 0.5; 
+                transform: scale(0.98);
+            }
+        }
 
         #map {
             height: calc(100vh - 240px);
@@ -354,6 +370,13 @@
             const statusEl = document.getElementById('status');
             statusEl.textContent = message;
             statusEl.className = 'status ' + type;
+            
+            // Ajouter l'animation de clignotement si c'est un chargement actif
+            if (type === 'active' && (message.includes('🔍') || message.includes('Recherche') || message.includes('Connexion'))) {
+                statusEl.classList.add('loading');
+            } else {
+                statusEl.classList.remove('loading');
+            }
         }
 
         // Mettre à jour les statistiques
