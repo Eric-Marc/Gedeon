@@ -335,6 +335,7 @@
         let sliderUpdateTimeout = null;
         const SLIDER_DEBOUNCE_MS = 800;
         let initialMapBounds = null; // Pour stocker la vue initiale
+        let currentFetchController = null; // Pour annuler les requêtes en cours
 
         // Initialiser la carte
         function initMap() {
@@ -588,6 +589,12 @@
             const city = CITY_COORDS[cityKey];
             if (!city) return;
 
+            // Annuler toute recherche en attente des sliders
+            if (sliderUpdateTimeout) {
+                clearTimeout(sliderUpdateTimeout);
+                sliderUpdateTimeout = null;
+            }
+
             currentContextLabel = city.label;
             currentPosition = {
                 coords: {
@@ -607,6 +614,14 @@
             }
 
             try {
+                // Annuler la requête précédente si elle existe
+                if (currentFetchController) {
+                    currentFetchController.abort();
+                }
+
+                // Créer un nouveau controller pour cette requête
+                currentFetchController = new AbortController();
+
                 const lat = position.coords.latitude;
                 const lon = position.coords.longitude;
 
@@ -620,13 +635,12 @@
                 params.append('days', currentDays);
 
                 // Timeout de 90 secondes pour les serveurs Render en veille
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 90000);
+                const timeoutId = setTimeout(() => currentFetchController.abort(), 90000);
 
                 updateStatus(`🔍 Recherche des événements ${placeText} dans un rayon de ${currentRadiusKm} km...`, 'active');
 
                 const res = await fetch(`${SERVER_URL}/api/events/nearby?` + params.toString(), {
-                    signal: controller.signal
+                    signal: currentFetchController.signal
                 });
                 
                 clearTimeout(timeoutId);
@@ -653,6 +667,12 @@
 
             } catch (e) {
                 console.error('Erreur complète:', e);
+                
+                // Si c'est une annulation volontaire, ne pas afficher d'erreur
+                if (e.name === 'AbortError') {
+                    console.log('Requête annulée (nouvelle recherche en cours)');
+                    return;
+                }
                 
                 if (e.name === 'AbortError') {
                     updateStatus('❌ Timeout: Le serveur met trop de temps à répondre (>90s)', 'error');
