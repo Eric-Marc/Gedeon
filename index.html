@@ -352,6 +352,8 @@
         const SLIDER_DEBOUNCE_MS = 800;
         let initialMapBounds = null; // Pour stocker la vue initiale
         let currentFetchController = null; // Pour annuler les requêtes en cours
+        let currentRadiusCircle = null; // Pour stocker le cercle de rayon
+        let currentCenterMarker = null; // Pour stocker le marqueur du centre
 
         // Initialiser la carte
         function initMap() {
@@ -413,6 +415,18 @@
                 map.removeLayer(currentMarkerCluster);
             }
 
+            // Supprimer l'ancien cercle de rayon
+            if (currentRadiusCircle) {
+                map.removeLayer(currentRadiusCircle);
+                currentRadiusCircle = null;
+            }
+
+            // Supprimer l'ancien marqueur de centre
+            if (currentCenterMarker) {
+                map.removeLayer(currentCenterMarker);
+                currentCenterMarker = null;
+            }
+
             // Créer un nouveau cluster
             currentMarkerCluster = L.markerClusterGroup({
                 chunkedLoading: true,
@@ -425,7 +439,7 @@
 
             // Ajouter un cercle pour visualiser le rayon de recherche
             if (centerLat && centerLon && radiusKm) {
-                L.circle([centerLat, centerLon], {
+                currentRadiusCircle = L.circle([centerLat, centerLon], {
                     radius: radiusKm * 1000, // en mètres
                     color: '#667eea',
                     fillColor: 'transparent',
@@ -434,7 +448,7 @@
                 }).addTo(map);
 
                 // Marqueur pour le centre de recherche
-                L.marker([centerLat, centerLon], {
+                currentCenterMarker = L.marker([centerLat, centerLon], {
                     icon: L.divIcon({
                         className: 'center-marker',
                         html: '<div style="background: #ef4444; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>',
