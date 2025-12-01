@@ -5,7 +5,10 @@ import json
 import os
 import math
 import requests
+
+# Nouveaux imports
 from cinemas import find_cinemas
+from showtimes import enrich_cinemas_with_showtimes
 
 # -------------------------------------------------
 # Configuration de l'application
@@ -80,31 +83,18 @@ def get_latest_location():
 def calculate_bounding_box(lat, lng, radius_km):
     """
     Calculate bounding box coordinates from a center point and radius.
-
-    Args:
-        lat: Center latitude
-        lng: Center longitude
-        radius_km: Radius in kilometers
-
-    Returns:
-        Dictionary with northEast and southWest coordinates
     """
-    # Earth's radius in kilometers
     EARTH_RADIUS_KM = 6371.0
 
-    # Convert radius to radians
     radius_rad = radius_km / EARTH_RADIUS_KM
 
-    # Convert lat/lng to radians
     lat_rad = math.radians(lat)
     lng_rad = math.radians(lng)
 
-    # Calculate latitude bounds
     lat_delta = math.degrees(radius_rad)
     min_lat = lat - lat_delta
     max_lat = lat + lat_delta
 
-    # Calculate longitude bounds (accounting for latitude)
     lng_delta = math.degrees(radius_rad / math.cos(lat_rad))
     min_lng = lng - lng_delta
     max_lng = lng + lng_delta
@@ -140,7 +130,7 @@ def search_agendas(search_term=None, official=None, limit=100):
     """
     url = f"{BASE_URL}/agendas"
     params = {
-        "key": API_KEY,  # CORRECTION: La clé doit être dans les paramètres, pas les en-têtes
+        "key": API_KEY,
         "size": min(limit, 300)
     }
 
@@ -161,16 +151,11 @@ def search_agendas(search_term=None, official=None, limit=100):
 def get_events_from_agenda(agenda_uid, center_lat, center_lon, radius_km, days_ahead, limit=300):
     """
     Récupère les événements d'un agenda avec filtrage géographique et temporel via l'API.
-    
-    CORRECTION MAJEURE: Utilise les paramètres geo[] et timings[] pour filtrer via l'API
-    comme dans find_events.py
     """
     url = f"{BASE_URL}/agendas/{agenda_uid}/events"
 
-    # Calculate bounding box
     bbox = calculate_bounding_box(center_lat, center_lon, radius_km)
-    
-    # Date filtering
+
     today = datetime.now()
     today_str = today.strftime('%Y-%m-%d')
     end_date = today + timedelta(days=days_ahead)
@@ -180,12 +165,10 @@ def get_events_from_agenda(agenda_uid, center_lat, center_lon, radius_km, days_a
         'key': API_KEY,
         'size': min(limit, 300),
         'detailed': 1,
-        # CORRECTION: Ajout du filtrage géographique via l'API
         'geo[northEast][lat]': bbox['northEast']['lat'],
         'geo[northEast][lng]': bbox['northEast']['lng'],
         'geo[southWest][lat]': bbox['southWest']['lat'],
         'geo[southWest][lng]': bbox['southWest']['lng'],
-        # CORRECTION: Ajout du filtrage temporel via l'API
         'timings[gte]': today_str,
         'timings[lte]': end_date_str,
     }
@@ -219,15 +202,10 @@ def parse_iso_datetime(s):
 def geocode_address_nominatim(address_str):
     """
     Géocode une adresse texte avec Nominatim (OpenStreetMap).
-
-    ⚠️ IMPORTANT :
-    - respecter les conditions d'utilisation de Nominatim
-    - toujours envoyer un User-Agent avec un contact (site ou email)
     """
     if not address_str:
         return None, None
 
-    # Cache en mémoire pour ne pas re-géocoder la même adresse
     if address_str in GEOCODE_CACHE:
         return GEOCODE_CACHE[address_str]
 
@@ -337,23 +315,15 @@ def location_latest():
 
 
 # -------------------------------------------------
-# API : événements à proximité (rayon / jours paramétrables, France entière)
+# API : événements à proximité (OpenAgenda)
 # -------------------------------------------------
 
 @app.route('/api/events/nearby', methods=['GET'])
 def events_nearby():
     """
-    Cherche des événements autour d'une position (téléphone ou dernière position enregistrée),
-    sur l'ensemble des agendas accessibles à la clé API (France entière pour CETTE clé).
-
-    Paramètres de requête (GET) :
-      - lat      : latitude (float, optionnel - prioritaire sur position enregistrée)
-      - lon      : longitude (float, optionnel - prioritaire sur position enregistrée)
-      - radiusKm : rayon en kilomètres (float, optionnel)
-      - days     : nombre de jours à venir (int, optionnel)
+    Cherche des événements autour d'une position.
     """
     try:
-        # 0. Lecture des paramètres de filtrage
         lat_param = request.args.get("lat", type=float)
         lon_param = request.args.get("lon", type=float)
         radius_param = request.args.get("radiusKm", type=float)
@@ -362,26 +332,22 @@ def events_nearby():
         radius_km = radius_param if (radius_param is not None and radius_param > 0) else RADIUS_KM_DEFAULT
         days_ahead = days_param if (days_param is not None and days_param >= 0) else DAYS_AHEAD_DEFAULT
 
-        # Rayon max (sécurité)
         if radius_km > 1000:
             radius_km = 1000.0
 
         now = datetime.now(timezone.utc)
         end = now + timedelta(days=days_ahead)
 
-        # 1. Position : priorité aux paramètres lat/lon, sinon dernière position enregistrée
         if lat_param is not None and lon_param is not None:
-            # Utiliser les coordonnées passées en paramètres (position actuelle du téléphone)
             center_lat = lat_param
             center_lon = lon_param
-            print(f"📍 Utilisation de la position fournie en paramètres: ({center_lat}, {center_lon})")
+            print(f"📍 Utilisation de la position fournie: ({center_lat}, {center_lon})")
         else:
-            # Utiliser la dernière position enregistrée
             latest = get_latest_location()
             if latest is None:
                 return jsonify({
                     "status": "error",
-                    "message": "Aucune position enregistrée et aucune coordonnée fournie. Utilisez ?lat=XX&lon=YY ou enregistrez une position."
+                    "message": "Aucune position enregistrée et aucune coordonnée fournie."
                 }), 404
 
             center_lat = latest.get("latitude")
@@ -391,7 +357,7 @@ def events_nearby():
                     "status": "error",
                     "message": "Dernier point invalide (latitude/longitude manquantes)."
                 }), 500
-            
+
             print(f"📍 Utilisation de la dernière position enregistrée: ({center_lat}, {center_lon})")
 
         try:
@@ -405,14 +371,12 @@ def events_nearby():
 
         print(f"🔍 Recherche d'événements autour de ({center_lat}, {center_lon}), rayon={radius_km}km, jours={days_ahead}")
 
-        # 2. Recherche d'agendas (France entière pour cette clé)
         agendas_result = search_agendas(limit=100)
         agendas = agendas_result.get('agendas', []) if agendas_result else []
         total_agendas = len(agendas)
 
         print(f"📚 {total_agendas} agendas trouvés")
 
-        # stats debug
         agendas_with_events = 0
         total_events_scanned = 0
         total_events_after_geo_filter = 0
@@ -438,7 +402,6 @@ def events_nearby():
                 }
             }), 200
 
-        # 3. Récupération des événements agenda par agenda avec filtrage API
         all_events = []
 
         for idx, agenda in enumerate(agendas):
@@ -452,22 +415,18 @@ def events_nearby():
 
             print(f"📖 [{idx+1}/{total_agendas}] Agenda: {agenda_title} ({uid})")
 
-            # CORRECTION MAJEURE: Passer les coordonnées et le rayon à la fonction
             events_data = get_events_from_agenda(uid, center_lat, center_lon, radius_km, days_ahead, limit=300)
             events = events_data.get('events', []) if events_data else []
-            
-            print(f"   → {len(events)} événements retournés par l'API")
-            
-            total_events_scanned += len(events)
 
+            print(f"   → {len(events)} événements retournés par l'API")
+
+            total_events_scanned += len(events)
             if events:
                 agendas_with_events += 1
 
             for ev in events:
-                # L'API a déjà filtré par date et bounding box
                 total_events_after_geo_filter += 1
 
-                # Récupération du timing
                 timings = ev.get('timings') or []
                 begin_str = None
                 end_str = None
@@ -476,12 +435,10 @@ def events_nearby():
                     begin_str = first_timing.get('begin')
                     end_str = first_timing.get('end')
 
-                # Récupération de la localisation
                 loc = ev.get('location') or {}
                 ev_lat = loc.get('latitude')
                 ev_lon = loc.get('longitude')
 
-                # Si OpenAgenda ne fournit pas de lat/lon, on tente Nominatim
                 if ev_lat is None or ev_lon is None:
                     parts = []
                     if loc.get("name"):
@@ -498,7 +455,6 @@ def events_nearby():
                         ev_lat = geocoded_lat
                         ev_lon = geocoded_lon
                     else:
-                        # Impossible de géocoder => on ignore pour la carte
                         print(f"   ⚠️  Pas de coordonnées pour: {ev.get('title', 'Sans titre')}")
                         continue
 
@@ -508,14 +464,11 @@ def events_nearby():
                 except ValueError:
                     continue
 
-                # Calcul de la distance exacte
                 dist = haversine_km(center_lat, center_lon, ev_lat, ev_lon)
 
-                # mise à jour de la distance mini vue
                 if min_distance is None or dist < min_distance:
                     min_distance = dist
 
-                # Vérification finale du rayon (par sécurité, l'API devrait avoir déjà filtré)
                 if dist > radius_km:
                     print(f"   ❌ Événement hors rayon: {dist:.1f}km > {radius_km}km")
                     continue
@@ -528,10 +481,8 @@ def events_nearby():
                 else:
                     ev_title = title_field or 'Événement'
 
-                # slug de l'événement
                 event_slug = ev.get('slug')
                 openagenda_url = None
-                # Construction du lien public correct si on a les deux slugs
                 if agenda_slug and event_slug:
                     openagenda_url = f"https://openagenda.com/{agenda_slug}/events/{event_slug}?lang=fr"
 
@@ -550,20 +501,7 @@ def events_nearby():
                     "agendaTitle": agenda_title,
                 })
 
-        # Tri par date de début (texte ISO)
         all_events.sort(key=lambda e: e["begin"] or "")
-
-        debug_info = {
-            "totalAgendas": total_agendas,
-            "agendasWithEvents": agendas_with_events,
-            "totalEventsScanned": total_events_scanned,
-            "totalEventsAfterGeoFilter": total_events_after_geo_filter,
-            "totalEventsAfterDistanceFilter": total_events_after_distance,
-            "minDistanceKm": round(min_distance, 1) if min_distance is not None else None
-        }
-
-        print(f"✅ {len(all_events)} événements trouvés au total")
-        print(f"📊 Debug: {debug_info}")
 
         return jsonify({
             "status": "success",
@@ -572,73 +510,99 @@ def events_nearby():
             "days": days_ahead,
             "events": all_events,
             "count": len(all_events),
-            "debug": debug_info,
+            "debug": {
+                "totalAgendas": total_agendas,
+                "agendasWithEvents": agendas_with_events,
+                "totalEventsScanned": total_events_scanned,
+                "totalEventsAfterGeoFilter": total_events_after_geo_filter,
+                "totalEventsAfterDistanceFilter": total_events_after_distance,
+                "minDistanceKm": min_distance,
+            }
         }), 200
 
     except Exception as e:
-        print("🔥 Error in /api/events/nearby:", repr(e))
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            "status": "error",
-            "message": "Une erreur interne est survenue dans /api/events/nearby.",
-            "details": str(e),
-        }), 500
+        print(f"🔥 Error in /api/events/nearby: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 # -------------------------------------------------
-# API : cinémas à proximité (via OpenStreetMap / Overpass)
+# API : cinémas + séances (OSM + Allociné)
 # -------------------------------------------------
 
 @app.route('/api/cinemas', methods=['GET'])
 def cinemas_nearby():
-    """Retourne les cinémas autour d'un point GPS (lat, lon) dans un rayon donné en km."""
+    """
+    Cherche les cinémas autour d'un point GPS.
+    
+    Paramètres GET :
+      - lat, lon        : centre de la recherche
+      - radiusKm        : rayon en km (par défaut 30)
+      - withShowtimes   : '1' / 'true' pour récupérer aussi les séances du jour
+      - date            : optionnel, YYYY-MM-DD (par défaut aujourd'hui)
+    """
     try:
-        lat = request.args.get("lat", type=float)
-        lon = request.args.get("lon", type=float)
+        lat_param = request.args.get("lat", type=float)
+        lon_param = request.args.get("lon", type=float)
         radius_param = request.args.get("radiusKm", type=float)
+        date_param = request.args.get("date", type=str)
+        with_showtimes_param = request.args.get("withShowtimes", default="1")
 
-        if lat is None or lon is None:
+        radius_km = radius_param if (radius_param is not None and radius_param > 0) else 30.0
+
+        # Position : si pas fournie, on réutilise la dernière
+        if lat_param is not None and lon_param is not None:
+            center_lat = lat_param
+            center_lon = lon_param
+            print(f"📍 Cinémas: position fournie ({center_lat}, {center_lon})")
+        else:
+            latest = get_latest_location()
+            if latest is None:
+                return jsonify({
+                    "status": "error",
+                    "message": "Aucune position enregistrée et aucune coordonnée fournie."
+                }), 404
+            center_lat = latest.get("latitude")
+            center_lon = latest.get("longitude")
+            print(f"📍 Cinémas: utilisation de la dernière position ({center_lat}, {center_lon})")
+
+        try:
+            center_lat = float(center_lat)
+            center_lon = float(center_lon)
+        except (TypeError, ValueError):
             return jsonify({
                 "status": "error",
-                "message": "Paramètres lat et lon obligatoires pour /api/cinemas"
+                "message": "Coordonnées invalides pour les cinémas."
             }), 400
 
-        # Rayon par défaut 10 km, borné pour éviter les requêtes trop grosses
-        radius_km = radius_param if (radius_param is not None and radius_param > 0) else 10.0
-        if radius_km > 100:
-            radius_km = 100.0
+        print(f"🎬 Recherche de cinémas autour de ({center_lat}, {center_lon}), rayon={radius_km}km")
 
-        print(f"🎬 Recherche de cinémas autour de ({lat}, {lon}), rayon={radius_km}km")
+        cinemas = find_cinemas(center_lat, center_lon, radius_km, max_results=50)
 
-        cinemas = find_cinemas(lat, lon, radius_km)
+        with_showtimes = str(with_showtimes_param).lower() in ("1", "true", "yes", "on")
+        if with_showtimes and cinemas:
+            try:
+                enrich_cinemas_with_showtimes(cinemas, date_str=date_param, max_cinemas=8)
+            except Exception as e:
+                # On ne bloque pas si Allociné ou Nominatim tombe
+                print(f"⚠️ Erreur enrich_cinemas_with_showtimes: {e}")
 
         return jsonify({
             "status": "success",
-            "center": {"latitude": lat, "longitude": lon},
+            "center": {"latitude": center_lat, "longitude": center_lon},
             "radiusKm": radius_km,
             "count": len(cinemas),
             "cinemas": cinemas,
         }), 200
 
     except Exception as e:
-        print("🔥 Error in /api/cinemas:", repr(e))
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            "status": "error",
-            "message": "Une erreur interne est survenue dans /api/cinemas.",
-            "details": str(e),
-        }), 500
+        print(f"🔥 Error in /api/cinemas: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 # -------------------------------------------------
-# Entrée principale
+# Main
 # -------------------------------------------------
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    print(f"Starting server on port {port}")
-    print(f"OpenAgenda BASE_URL={BASE_URL}")
-    print(f"Radius default = {RADIUS_KM_DEFAULT} km, days default = {DAYS_AHEAD_DEFAULT}")
+    port = int(os.environ.get("PORT", "5000"))
     app.run(host='0.0.0.0', port=port, debug=True)
