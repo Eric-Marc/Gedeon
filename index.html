@@ -331,6 +331,7 @@
     <div id="controls">
         <div class="control-group">
             <button id="btnMyPosition" onclick="getUserLocation()">📍 Ma position</button>
+            <button id="btnCinemas" onclick="searchNearbyCinemas()" disabled>🎬 Cinémas autour du point</button>
 
             <div class="slider-group">
                 <span class="slider-label">Rayon:</span>
@@ -402,6 +403,7 @@
         var currentFetchController = null;
         var currentRadiusCircle = null;
         var currentCenterMarker = null;
+        var cinemaLayer = null;
 
         // État du long-press
         var longPressTimer = null;
@@ -418,180 +420,181 @@
         var progressCircle = indicator.querySelector('.progress-circle');
         var mapInstructions = document.getElementById('map-instructions');
 
-        // Initialiser la carte
-        function initMap() {
-            map = L.map('map', {
-                center: [46.603354, 1.888334],
-                zoom: 6,
-                tap: true,
-                tapTolerance: 15
-            });
+        // Mettre à jour le statut
+        function updateStatus(message, type) {
+            var statusEl = document.getElementById('status');
+            statusEl.textContent = message;
 
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap contributors',
-                maxZoom: 19
-            }).addTo(map);
+            statusEl.classList.remove('waiting', 'active', 'error', 'loading');
 
-            setupLongPressEvents();
+            if (type === 'active') {
+                statusEl.classList.add('active');
+            } else if (type === 'error') {
+                statusEl.classList.add('error');
+            } else {
+                statusEl.classList.add('waiting');
+            }
+
+            if (type === 'active' && (message.includes('🔍') || message.includes('Recherche') || message.includes('Connexion'))) {
+                statusEl.classList.add('loading');
+            }
         }
 
-        // Configuration des événements long-press
+        // Statistiques
+        function updateStats(events) {
+            var venues = {};
+            var agendas = {};
+
+            for (var i = 0; i < events.length; i++) {
+                var e = events[i];
+                if (e.locationName) venues[e.locationName] = true;
+                if (e.agendaTitle) agendas[e.agendaTitle] = true;
+            }
+
+            document.getElementById('event-count').textContent = events.length;
+            document.getElementById('venue-count').textContent = Object.keys(venues).length;
+            document.getElementById('agenda-count').textContent = Object.keys(agendas).length;
+        }
+
+        // Formater date
+        function formatDate(isoString) {
+            if (!isoString) return 'Date non précisée';
+            try {
+                return new Date(isoString).toLocaleDateString('fr-FR', { 
+                    day: '2-digit', month: '2-digit', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                });
+            } catch (e) {
+                return 'Date non précisée';
+            }
+        }
+
+        // Initialiser la carte
+        function initMap() {
+            if (!map) {
+                map = L.map('map', {
+                    zoomControl: true,
+                    preferCanvas: true,
+                    tap: true,
+                    tapTolerance: 15
+                });
+
+                map.setView([46.603354, 1.888334], 6); // Centre France
+
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; OpenStreetMap contributors',
+                    maxZoom: 19
+                }).addTo(map);
+
+                setupLongPressEvents();
+            }
+        }
+
+        // Gestion long-press
         function setupLongPressEvents() {
             var mapEl = document.getElementById('map');
 
-            // Desktop - souris
-            mapEl.addEventListener('mousedown', onPressStart);
-            document.addEventListener('mouseup', onPressEnd);
-            document.addEventListener('mousemove', onPressMove);
+            function startLongPress(e) {
+                if (!map) return;
 
-            // Mobile - tactile
-            mapEl.addEventListener('touchstart', onTouchStart, { passive: false });
-            document.addEventListener('touchend', onPressEnd);
-            document.addEventListener('touchcancel', onPressEnd);
-            document.addEventListener('touchmove', onTouchMove, { passive: false });
-
-            // Annuler lors du déplacement/zoom de la carte
-            map.on('movestart', cancelLongPress);
-            map.on('zoomstart', cancelLongPress);
-        }
-
-        function onTouchStart(e) {
-            if (e.touches.length !== 1) return;
-            
-            var touch = e.touches[0];
-            var target = document.elementFromPoint(touch.clientX, touch.clientY);
-            
-            // Ne PAS intercepter les touches sur les marqueurs, popups, clusters ou contrôles
-            if (target && (
-                target.closest('.leaflet-marker-icon') ||
-                target.closest('.leaflet-marker-pane') ||
-                target.closest('.leaflet-popup') ||
-                target.closest('.leaflet-popup-pane') ||
-                target.closest('.leaflet-control') ||
-                target.closest('.marker-cluster') ||
-                target.closest('.leaflet-interactive')
-            )) {
-                return;
-            }
-            
-            onPressStart({ clientX: touch.clientX, clientY: touch.clientY, target: target });
-        }
-
-        function onTouchMove(e) {
-            if (!longPressActive) return;
-            if (e.touches.length !== 1) return;
-            var touch = e.touches[0];
-            onPressMove({ clientX: touch.clientX, clientY: touch.clientY });
-        }
-
-        function onPressStart(e) {
-            // Ignorer les clics sur les contrôles Leaflet, marqueurs, popups, clusters
-            if (e.target && (
-                e.target.closest('.leaflet-control') || 
-                e.target.closest('.leaflet-popup') ||
-                e.target.closest('.leaflet-popup-pane') ||
-                e.target.closest('.leaflet-marker-icon') ||
-                e.target.closest('.leaflet-marker-pane') ||
-                e.target.closest('.marker-cluster') ||
-                e.target.closest('.leaflet-interactive')
-            )) {
-                return;
-            }
-
-            // Annuler tout long-press précédent
-            cancelLongPress();
-
-            // Programmer le nettoyage de l'ancienne recherche après 1 seconde
-            clearOldSearchTimer = setTimeout(function() {
                 if (longPressActive) {
-                    clearOldSearch();
+                    clearLongPress();
                 }
-            }, 1000);
 
-            // Calculer les coordonnées sur la carte
-            var mapContainer = map.getContainer();
-            var rect = mapContainer.getBoundingClientRect();
-            var point = L.point(e.clientX - rect.left, e.clientY - rect.top);
-            
-            // Stocker les infos du nouveau long-press
-            longPressLatLng = map.containerPointToLatLng(point);
-            longPressStartTime = Date.now();
-            longPressStartX = e.clientX;
-            longPressStartY = e.clientY;
-            longPressActive = true;
+                map.closePopup();
+                clearOldSearchTimer = setTimeout(function() {
+                    if (longPressActive) {
+                        clearOldSearch();
+                    }
+                }, 1000);
 
-            // Positionner et afficher l'indicateur
-            indicator.style.left = e.clientX + 'px';
-            indicator.style.top = e.clientY + 'px';
-            progressCircle.style.strokeDashoffset = '188.5';
-            indicator.classList.add('visible');
-
-            // Animation de progression
-            longPressInterval = setInterval(function() {
-                if (!longPressActive) {
-                    clearInterval(longPressInterval);
-                    return;
-                }
+                var mapContainer = map.getContainer();
+                var rect = mapContainer.getBoundingClientRect();
+                var point = L.point(e.clientX - rect.left, e.clientY - rect.top);
                 
-                var elapsed = Date.now() - longPressStartTime;
-                var progress = Math.min(elapsed / LONGPRESS_DURATION, 1);
-                var offset = 188.5 * (1 - progress);
-                progressCircle.style.strokeDashoffset = String(offset);
-            }, 30);
+                longPressLatLng = map.containerPointToLatLng(point);
+                longPressStartTime = Date.now();
+                longPressStartX = e.clientX;
+                longPressStartY = e.clientY;
+                longPressActive = true;
 
-            // Timer pour déclencher la recherche
-            longPressTimer = setTimeout(function() {
-                if (longPressActive && longPressLatLng) {
-                    var lat = longPressLatLng.lat;
-                    var lng = longPressLatLng.lng;
+                indicator.style.left = e.clientX + 'px';
+                indicator.style.top = e.clientY + 'px';
+                progressCircle.style.strokeDashoffset = '188.5';
+                indicator.classList.add('visible');
+
+                longPressInterval = setInterval(function() {
+                    if (!longPressActive) {
+                        clearInterval(longPressInterval);
+                        return;
+                    }
                     
-                    cancelLongPress();
-                    mapInstructions.classList.add('hidden');
-                    onLocationSelected(lat, lng);
+                    var elapsed = Date.now() - longPressStartTime;
+                    var progress = Math.min(1, elapsed / LONGPRESS_DURATION);
+                    var offset = 188.5 * (1 - progress);
+                    progressCircle.style.strokeDashoffset = offset.toString();
+
+                    if (progress >= 1) {
+                        clearInterval(longPressInterval);
+                        indicator.classList.remove('visible');
+                        longPressActive = false;
+                        
+                        if (longPressLatLng) {
+                            mapInstructions.classList.add('hidden');
+                            onLocationSelected(longPressLatLng.lat, longPressLatLng.lng);
+                        }
+                    }
+                }, 16);
+            }
+
+            function moveLongPress(e) {
+                if (!longPressActive || !longPressStartTime) return;
+
+                var dx = e.clientX - longPressStartX;
+                var dy = e.clientY - longPressStartY;
+                var dist = Math.sqrt(dx*dx + dy*dy);
+
+                if (dist > LONGPRESS_MOVE_THRESHOLD) {
+                    clearLongPress();
                 }
-            }, LONGPRESS_DURATION);
-        }
-
-        function onPressMove(e) {
-            if (!longPressActive) return;
-
-            var dx = e.clientX - longPressStartX;
-            var dy = e.clientY - longPressStartY;
-            var distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance > LONGPRESS_MOVE_THRESHOLD) {
-                cancelLongPress();
-            }
-        }
-
-        function onPressEnd() {
-            cancelLongPress();
-        }
-
-        function cancelLongPress() {
-            if (longPressTimer !== null) {
-                clearTimeout(longPressTimer);
-                longPressTimer = null;
-            }
-            
-            if (longPressInterval !== null) {
-                clearInterval(longPressInterval);
-                longPressInterval = null;
             }
 
-            if (clearOldSearchTimer !== null) {
-                clearTimeout(clearOldSearchTimer);
-                clearOldSearchTimer = null;
+            function clearLongPress() {
+                longPressActive = false;
+                longPressStartTime = null;
+                longPressLatLng = null;
+                indicator.classList.remove('visible');
+                progressCircle.style.strokeDashoffset = '188.5';
+                if (longPressInterval) {
+                    clearInterval(longPressInterval);
+                    longPressInterval = null;
+                }
+                if (clearOldSearchTimer) {
+                    clearTimeout(clearOldSearchTimer);
+                    clearOldSearchTimer = null;
+                }
             }
-            
-            longPressActive = false;
-            longPressLatLng = null;
-            longPressStartTime = null;
-            longPressStartX = 0;
-            longPressStartY = 0;
-            
-            indicator.classList.remove('visible');
-            progressCircle.style.strokeDashoffset = '188.5';
+
+            mapEl.addEventListener('mousedown', function(e) {
+                if (e.button !== 0) return;
+                startLongPress(e);
+            });
+            mapEl.addEventListener('touchstart', function(e) {
+                if (!e.touches || e.touches.length !== 1) return;
+                startLongPress(e.touches[0]);
+            }, { passive: true });
+
+            ['mouseup', 'mouseleave'].forEach(function(ev) {
+                mapEl.addEventListener(ev, clearLongPress);
+            });
+            document.addEventListener('touchend', clearLongPress, { passive: true });
+            document.addEventListener('touchcancel', clearLongPress, { passive: true });
+
+            mapEl.addEventListener('mousemove', moveLongPress);
+            mapEl.addEventListener('touchmove', function(e) {
+                if (!e.touches || e.touches.length !== 1) return;
+                moveLongPress(e.touches[0]);
+            }, { passive: true });
         }
 
         // Effacer l'ancienne recherche
@@ -607,6 +610,10 @@
             if (currentCenterMarker) {
                 map.removeLayer(currentCenterMarker);
                 currentCenterMarker = null;
+            }
+            if (cinemaLayer) {
+                map.removeLayer(cinemaLayer);
+                cinemaLayer = null;
             }
             updateStats([]);
         }
@@ -631,6 +638,11 @@
                 }
 
                 currentPosition = { coords: { latitude: lat, longitude: lon } };
+                var cinemaButton = document.getElementById('btnCinemas');
+                if (cinemaButton) {
+                    cinemaButton.disabled = false;
+                }
+                clearCinemaLayer();
                 fetchNearbyEvents(currentPosition);
             });
         }
@@ -642,7 +654,6 @@
                 return;
             }
 
-            clearOldSearch();
             updateStatus('🔍 Recherche de votre position...', 'active');
 
             navigator.geolocation.getCurrentPosition(
@@ -658,10 +669,10 @@
                     var msg = '❌ ';
                     switch(error.code) {
                         case error.PERMISSION_DENIED:
-                            msg += 'Permission refusée (activez la localisation)';
+                            msg += 'Accès à la position refusé';
                             break;
                         case error.POSITION_UNAVAILABLE:
-                            msg += 'Position non disponible';
+                            msg += 'Position indisponible';
                             break;
                         case error.TIMEOUT:
                             msg += 'Délai dépassé';
@@ -679,67 +690,26 @@
             );
         }
 
-        // Géocodage inverse
+        // Géocodage inverse simple via Nominatim
         function getCityFromCoordinates(lat, lon) {
-            return fetch(
-                'https://nominatim.openstreetmap.org/reverse?format=json&lat=' + lat + '&lon=' + lon + '&zoom=10&addressdetails=1',
-                { headers: { 'User-Agent': 'OpenAgenda Events App' } }
-            )
-            .then(function(response) {
-                if (!response.ok) return null;
-                return response.json();
+            var url = 'https://nominatim.openstreetmap.org/reverse?format=json&zoom=10&lat=' + lat + '&lon=' + lon;
+            return fetch(url, {
+                headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'gedeon-demo/1.0 (eric@ericmahe.com)'
+                }
             })
+            .then(function(res) { return res.json(); })
             .then(function(data) {
-                if (!data) return null;
-                var address = data.address || {};
-                var city = address.city || address.town || address.village || 
-                          address.municipality || address.county || address.state;
-                return { city: city, country: address.country || '' };
+                if (!data || !data.address) return null;
+                var address = data.address;
+                return {
+                    city: address.city || address.town || address.village || address.municipality || null
+                };
             })
-            .catch(function(e) {
-                console.error('Erreur géocodage:', e);
+            .catch(function() {
                 return null;
             });
-        }
-
-        // Mettre à jour le statut
-        function updateStatus(message, type) {
-            type = type || 'waiting';
-            var statusEl = document.getElementById('status');
-            statusEl.textContent = message;
-            statusEl.className = 'status ' + type;
-            
-            if (type === 'active' && message.indexOf('🔍') >= 0) {
-                statusEl.classList.add('loading');
-            }
-        }
-
-        // Mettre à jour les stats
-        function updateStats(events) {
-            var venues = {};
-            var agendas = {};
-            
-            for (var i = 0; i < events.length; i++) {
-                if (events[i].locationName) venues[events[i].locationName] = true;
-                if (events[i].agendaTitle) agendas[events[i].agendaTitle] = true;
-            }
-
-            document.getElementById('event-count').textContent = events.length;
-            document.getElementById('venue-count').textContent = Object.keys(venues).length;
-            document.getElementById('agenda-count').textContent = Object.keys(agendas).length;
-        }
-
-        // Formater date
-        function formatDate(isoString) {
-            if (!isoString) return 'Date non précisée';
-            try {
-                return new Date(isoString).toLocaleDateString('fr-FR', { 
-                    day: '2-digit', month: '2-digit', year: 'numeric',
-                    hour: '2-digit', minute: '2-digit'
-                });
-            } catch (e) {
-                return 'Date non précisée';
-            }
         }
 
         // Afficher les événements
@@ -805,6 +775,60 @@
             updateStats(events);
         }
 
+        // Efface uniquement la couche des cinémas
+        function clearCinemaLayer() {
+            if (cinemaLayer) {
+                map.removeLayer(cinemaLayer);
+                cinemaLayer = null;
+            }
+        }
+
+        // Affiche les cinémas sur la carte (en plus des événements)
+        function displayCinemasOnMap(cinemas) {
+            clearCinemaLayer();
+            if (!cinemas || cinemas.length === 0) {
+                return;
+            }
+
+            cinemaLayer = L.layerGroup();
+
+            for (var i = 0; i < cinemas.length; i++) {
+                var c = cinemas[i];
+                if (!c.latitude || !c.longitude) continue;
+
+                var marker = L.marker([c.latitude, c.longitude], {
+                    icon: L.divIcon({
+                        className: 'cinema-marker',
+                        html: '<div style="background:#f97316;width:18px;height:18px;border-radius:50%;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;font-size:12px;color:white;">🎬</div>',
+                        iconSize: [18, 18],
+                        iconAnchor: [9, 9]
+                    })
+                });
+
+                var popupHtml = '<div class="event-popup">';
+                popupHtml += '<h3>' + (c.name || 'Cinéma') + '</h3>';
+                if (c.address) {
+                    popupHtml += '<div class="address">' + c.address;
+                    if (c.city) popupHtml += ', ' + c.city;
+                    popupHtml += '</div>';
+                } else if (c.city) {
+                    popupHtml += '<div class="address">' + c.city + '</div>';
+                }
+                if (typeof c.distanceKm !== 'undefined') {
+                    popupHtml += '<div class="distance">📏 ' + c.distanceKm + ' km</div>';
+                }
+                if (c.website) {
+                    popupHtml += '<a href="' + c.website + '" target="_blank" class="link">Site web du cinéma →</a>';
+                }
+                popupHtml += '</div>';
+
+                marker.bindPopup(popupHtml, { maxWidth: 320 });
+                cinemaLayer.addLayer(marker);
+            }
+
+            cinemaLayer.addTo(map);
+        }
+
         // Récupérer les événements
         function fetchNearbyEvents(position) {
             if (!position) {
@@ -824,8 +848,6 @@
             var url = SERVER_URL + '/api/events/nearby?lat=' + lat + '&lon=' + lon + '&radiusKm=' + currentRadiusKm + '&days=' + currentDays;
 
             var timeoutId = setTimeout(function() { currentFetchController.abort(); }, 90000);
-
-            updateStatus('🔍 Recherche ' + placeText + ' (' + currentRadiusKm + 'km, ' + currentDays + 'j)...', 'active');
 
             fetch(url, { signal: currentFetchController.signal })
                 .then(function(res) {
@@ -853,6 +875,44 @@
                     if (e.name === 'AbortError') return;
                     console.error('Erreur:', e);
                     updateStatus('❌ Erreur: ' + e.message, 'error');
+                });
+        }
+
+        // Lance une recherche de cinémas autour du point courant
+        function searchNearbyCinemas() {
+            if (!currentPosition) {
+                updateStatus('❌ Aucun point sélectionné pour chercher des cinémas', 'error');
+                return;
+            }
+
+            var lat = currentPosition.coords.latitude;
+            var lon = currentPosition.coords.longitude;
+            var placeText = currentContextLabel || 'autour du point';
+
+            updateStatus('🔍 Recherche des cinémas ' + placeText + '...', 'active');
+
+            var url = SERVER_URL + '/api/cinemas?lat=' + lat + '&lon=' + lon + '&radiusKm=' + currentRadiusKm;
+
+            fetch(url)
+                .then(function(res) { return res.json(); })
+                .then(function(result) {
+                    if (result.status !== 'success') {
+                        updateStatus('❌ ' + (result.message || 'Erreur lors de la recherche de cinémas'), 'error');
+                        return;
+                    }
+
+                    var cinemas = result.cinemas || [];
+                    displayCinemasOnMap(cinemas);
+
+                    if (cinemas.length === 0) {
+                        updateStatus('🔍 Aucun cinéma trouvé ' + placeText, 'waiting');
+                    } else {
+                        updateStatus('✅ ' + cinemas.length + ' cinéma(s) ' + placeText, 'active');
+                    }
+                })
+                .catch(function(e) {
+                    console.error('Erreur cinémas:', e);
+                    updateStatus('❌ Erreur cinémas: ' + e.message, 'error');
                 });
         }
 
