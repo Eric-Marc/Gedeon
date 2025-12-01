@@ -1,199 +1,285 @@
-# showtimes.py
-from datetime import datetime
-from zoneinfo import ZoneInfo
-from typing import Optional, Dict, Any, List
+import unicodedata
+from datetime import date, datetime
 
-from allocineAPI.allocineAPI import allocineAPI  # fourni par allocine-seances
+import requests
+from allocineAPI.allocineAPI import allocineAPI
 
-# Instance globale réutilisée
+# Client Allociné
 _api = allocineAPI()
 
+# Caches simples
+_DEPARTMENTS_BY_NAME = None   # { normalized_name: id }
+_CINEMAS_BY_DEPT = {}         # { dept_id: [cinema dict ...] }
+_DEPT_NAME_CACHE = {}         # { (lat_rounded, lon_rounded): dept_name }
 
-def _norm(s: Optional[str]) -> str:
-    """Normalisation simple pour comparer des noms (minuscule + strip)."""
-    return s.lower().strip() if s else ""
+
+def _normalize_text(s: str) -> str:
+    """Normalisation simple : minuscules, suppression des accents / ponctuation."""
+    if not s:
+        return ""
+    s = s.strip().lower()
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    allowed = "abcdefghijklmnopqrstuvwxyz0123456789 "
+    s = "".join(ch if ch in allowed else " " for ch in s)
+    s = " ".join(s.split())
+    return s
 
 
-def _find_location_id_for_city(city: Optional[str]) -> Optional[str]:
-    """
-    Trouve un id de localisation Allociné (ville-XXXX…) à partir du nom de ville.
-    Utilise get_top_villes() de l'API. :contentReference[oaicite:1]{index=1}
-    """
-    if not city:
-        return None
+def _get_default_date_str() -> str:
+    return date.today().strftime("%Y-%m-%d")
 
-    target = _norm(city)
+
+def _reverse_geocode_department(lat: float, lon: float) -> str | None:
+    """Retourne le nom du département via Nominatim pour un point GPS."""
+    key = (round(lat, 3), round(lon, 3))
+    if key in _DEPT_NAME_CACHE:
+        return _DEPT_NAME_CACHE[key]
+
+    url = "https://nominatim.openstreetmap.org/reverse"
+    params = {
+        "lat": lat,
+        "lon": lon,
+        "format": "json",
+        "zoom": 10,
+        "addressdetails": 1,
+    }
+    headers = {
+        "User-Agent": "gedeon-cinemas-showtimes/1.0 (eric@ericmahe.com)"
+    }
 
     try:
-        villes = _api.get_top_villes()  # liste de {'id': 'ville-xxx', 'name': 'Montpellier', ...}
-    except Exception as e:
-        print("AllocineAPI get_top_villes error:", repr(e))
-        return None
+        r = requests.get(url, params=params, headers=headers, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        address = data.get("address", {}) if isinstance(data, dict) else {}
 
-    # 1) match exact (insensible à la casse)
-    for v in villes:
-        name = _norm(v.get("name"))
-        if name == target:
-            return v.get("id")
+        dept_name = (
+            address.get("county")
+            or address.get("state_district")
+            or address.get("state")
+        )
+        if dept_name:
+            _DEPT_NAME_CACHE[key] = dept_name
+            print(f"🗺️ Département détecté: {dept_name}")
+            return dept_name
 
-    # 2) match partiel (Montpellier / Montpellier (Agglo) / etc.)
-    for v in villes:
-        name = _norm(v.get("name"))
-        if target in name or name in target:
-            return v.get("id")
+    except requests.RequestException as e:
+        print(f"❌ Erreur Nominatim (reverse) pour ({lat}, {lon}): {e}")
 
+    _DEPT_NAME_CACHE[key] = None
     return None
 
 
-def _find_cinema_id(location_id: str, cinema_name: str, city: Optional[str]) -> Optional[str]:
-    """
-    Dans une localisation Allociné (ville ou département), trouve l'id du cinéma correspondant
-    au nom OSM + ville. Utilise get_cinema(id_location). :contentReference[oaicite:2]{index=2}
-    """
+def _load_departments():
+    global _DEPARTMENTS_BY_NAME
+    if _DEPARTMENTS_BY_NAME is not None:
+        return
+
     try:
-        cinemas = _api.get_cinema(location_id)  # [{'id': 'B0242', 'name': '...', 'address': '...'}, ...]
+        ret = _api.get_departements() or []
     except Exception as e:
-        print("AllocineAPI get_cinema error:", repr(e))
+        print(f"❌ Erreur Allociné get_departements: {e}")
+        _DEPARTMENTS_BY_NAME = {}
+        return
+
+    mapping = {}
+    for d in ret:
+        name = d.get("name")
+        did = d.get("id")
+        if not name or not did:
+            continue
+        norm = _normalize_text(name)
+        mapping[norm] = did
+
+    _DEPARTMENTS_BY_NAME = mapping
+    print(f"📚 {len(mapping)} départements Allociné chargés")
+
+
+def _get_department_id_for_name(name: str) -> str | None:
+    if not name:
+        return None
+    _load_departments()
+    if not _DEPARTMENTS_BY_NAME:
         return None
 
-    if not cinemas:
+    norm = _normalize_text(name)
+    if norm in _DEPARTMENTS_BY_NAME:
+        return _DEPARTMENTS_BY_NAME[norm]
+
+    # Petites tolérances (ex: "departement de herault" vs "herault")
+    for k, did in _DEPARTMENTS_BY_NAME.items():
+        if norm in k or k in norm:
+            return did
+    return None
+
+
+def _get_cinemas_for_dept(dept_id: str):
+    if dept_id in _CINEMAS_BY_DEPT:
+        return _CINEMAS_BY_DEPT[dept_id]
+    try:
+        ret = _api.get_cinema(dept_id) or []
+        _CINEMAS_BY_DEPT[dept_id] = ret
+        print(f"🎬 {len(ret)} cinémas Allociné pour {dept_id}")
+        return ret
+    except Exception as e:
+        print(f"❌ Erreur Allociné get_cinema({dept_id}): {e}")
+        _CINEMAS_BY_DEPT[dept_id] = []
+        return []
+
+
+def _find_best_allocine_cinema(dept_id: str, target_name: str) -> dict | None:
+    candidates = _get_cinemas_for_dept(dept_id)
+    if not candidates:
         return None
 
-    target = _norm(cinema_name)
-    city_norm = _norm(city)
+    target_norm = _normalize_text(target_name)
+    if not target_norm:
+        return None
 
     best = None
-    best_score = 0
+    best_score = -1
 
-    for c in cinemas:
-        cname = _norm(c.get("name"))
-        addr = _norm(c.get("address"))
+    for c in candidates:
+        cname = c.get("name")
+        if not cname:
+            continue
+        c_norm = _normalize_text(cname)
+
+        if c_norm == target_norm:
+            return c
 
         score = 0
-
-        # matching sur le nom de cinéma
-        if target and cname == target:
+        if target_norm in c_norm or c_norm in target_norm:
             score += 3
-        elif target and (target in cname or cname in target):
-            score += 2
 
-        # matching sur la ville dans l'adresse
-        if city_norm and city_norm in addr:
-            score += 1
+        # Overlap de mots
+        t_tokens = set(target_norm.split())
+        c_tokens = set(c_norm.split())
+        if t_tokens and c_tokens:
+            overlap = len(t_tokens & c_tokens)
+            score += overlap
 
         if score > best_score:
             best_score = score
             best = c
 
-    if best_score == 0 or best is None:
-        return None
+    # Seuil minimal : si vraiment trop faible, on évite le faux positif
+    if best is not None and best_score >= 2:
+        return best
+    return None
 
-    return best.get("id")
 
-
-def _convert_showtime_item(item: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    Convertit un élément renvoyé par api.get_showtime() en une liste de films
-    au format générique pour le front :
-      {
-        "movieTitle": "...",
-        "duration": "1h 30min",
-        "language": "VF" / "VO",
-        "is3D": False,
-        "showtimes": ["14:00", "16:30", ...]
-      }
-    :contentReference[oaicite:3]{index=3}
-    """
-    out: List[Dict[str, Any]] = []
-
-    title = item.get("title")
-    duration = item.get("duration")
-
-    for key, lang_label in (("VF", "VF"), ("VO", "VO")):
-        seances = item.get(key) or []
-        if not seances:
+def _format_showtime_list(raw_list):
+    """Convertit les horaires ISO en 'HH:MM' lisibles."""
+    times = []
+    for s in raw_list or []:
+        try:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            times.append(dt.strftime("%H:%M"))
+        except Exception:
             continue
+    return times
 
-        times: List[str] = []
-        for dt_str in seances:
-            # Ex: "2023-04-15T13:45:00"
-            try:
-                dt = datetime.fromisoformat(dt_str)
-                times.append(dt.strftime("%H:%M"))
-            except Exception:
-                # si parsing foire, on garde la chaîne brute
-                times.append(dt_str)
 
-        out.append({
-            "movieTitle": title,
+def get_showtimes_for_cinema(cinema_name: str, cinema_lat: float, cinema_lon: float,
+                             date_str: str | None = None):
+    """
+    Retourne les séances du jour pour un cinéma (via Allociné) :
+
+    [
+      {
+        "title": "...",
+        "duration": "...",
+        "vf": ["14:00", "16:30"],
+        "vo": [...],
+        "vost": [...]
+      },
+      ...
+    ]
+    """
+    if date_str is None:
+        date_str = _get_default_date_str()
+
+    try:
+        cinema_lat = float(cinema_lat)
+        cinema_lon = float(cinema_lon)
+    except (TypeError, ValueError):
+        return []
+
+    dept_name = _reverse_geocode_department(cinema_lat, cinema_lon)
+    if not dept_name:
+        return []
+
+    dept_id = _get_department_id_for_name(dept_name)
+    if not dept_id:
+        print(f"⚠️ Impossible de trouver l'id de département Allociné pour '{dept_name}'")
+        return []
+
+    best_cinema = _find_best_allocine_cinema(dept_id, cinema_name)
+    if not best_cinema:
+        print(f"⚠️ Aucun cinéma Allociné correspondant pour '{cinema_name}' dans {dept_id}")
+        return []
+
+    cinema_id = best_cinema.get("id")
+    if not cinema_id:
+        return []
+
+    try:
+        raw_showtimes = _api.get_showtime(cinema_id, date_str) or []
+    except Exception as e:
+        print(f"❌ Erreur Allociné get_showtime({cinema_id}, {date_str}): {e}")
+        return []
+
+    formatted = []
+    for entry in raw_showtimes:
+        title = entry.get("title")
+        duration = entry.get("duration")
+        vf_list = _format_showtime_list(entry.get("VF"))
+        vo_list = _format_showtime_list(entry.get("VO"))
+        vost_list = _format_showtime_list(entry.get("VOST"))
+
+        formatted.append({
+            "title": title,
             "duration": duration,
-            "language": lang_label,
-            "is3D": False,          # on pourrait raffiner en analysant title/duration
-            "showtimes": times,
+            "vf": vf_list,
+            "vo": vo_list,
+            "vost": vost_list,
         })
 
-    return out
+    return formatted
 
 
-def get_showtimes(cinema_name: str, city: Optional[str], date_str: str) -> Dict[str, Any]:
+def enrich_cinemas_with_showtimes(cinemas: list, date_str: str | None = None,
+                                  max_cinemas: int = 8):
     """
-    Récupère les séances Allociné pour un cinéma (par nom + ville) et une date YYYY-MM-DD.
-    - city sert à trouver l'id "ville-XXXXX"
-    - cinema_name sert à matcher dans la liste des cinémas de cette ville.
+    Ajoute les séances du jour aux objets cinémas (in-place) :
 
-    Retourne un dict :
-      {
-        "cinemaName": ...,
-        "city": ...,
-        "date": "YYYY-MM-DD",
-        "showtimes": [ {movieTitle, duration, language, is3D, showtimes[]}, ... ]
-      }
+    cinéma["showtimes"] = [...]
+    cinéma["showtimesDate"] = "YYYY-MM-DD"
     """
-    if not date_str:
-        tz = ZoneInfo("Europe/Paris")
-        date_str = datetime.now(tz).strftime("%Y-%m-%d")
+    if not cinemas:
+        return cinemas
 
-    # 1) localiser la ville Allociné
-    loc_id = _find_location_id_for_city(city)
-    if not loc_id:
-        print(f"[Allocine] Aucun id de localisation trouvé pour la ville '{city}'")
-        return {
-            "cinemaName": cinema_name,
-            "city": city,
-            "date": date_str,
-            "showtimes": [],
-        }
+    if date_str is None:
+        date_str = _get_default_date_str()
 
-    # 2) trouver l'id du cinéma dans cette localisation
-    cinema_id = _find_cinema_id(loc_id, cinema_name, city)
-    if not cinema_id:
-        print(f"[Allocine] Aucun cinéma correspondant à '{cinema_name}' ({city}) pour loc_id={loc_id}")
-        return {
-            "cinemaName": cinema_name,
-            "city": city,
-            "date": date_str,
-            "showtimes": [],
-        }
+    count = 0
+    for cinema in cinemas:
+        if count >= max_cinemas:
+            break
 
-    # 3) récupérer les séances
-    try:
-        raw = _api.get_showtime(cinema_id, date_str)  # liste de dicts
-    except Exception as e:
-        print("AllocineAPI get_showtime error:", repr(e))
-        return {
-            "cinemaName": cinema_name,
-            "city": city,
-            "date": date_str,
-            "showtimes": [],
-        }
+        name = cinema.get("name")
+        lat = cinema.get("latitude")
+        lon = cinema.get("longitude")
+        if not name or lat is None or lon is None:
+            continue
 
-    films: List[Dict[str, Any]] = []
-    for item in raw or []:
-        films.extend(_convert_showtime_item(item))
+        showtimes = get_showtimes_for_cinema(name, lat, lon, date_str=date_str)
+        if showtimes:
+            cinema["showtimes"] = showtimes
+            cinema["showtimesDate"] = date_str
+            count += 1
 
-    return {
-        "cinemaName": cinema_name,
-        "city": city,
-        "date": date_str,
-        "showtimes": films,
-    }
+    print(f"🎞️ Séances ajoutées pour {count} cinémas")
+    return cinemas
