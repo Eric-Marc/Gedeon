@@ -5,6 +5,7 @@ import json
 import os
 import math
 import requests
+from cinemas import find_cinemas
 
 # -------------------------------------------------
 # Configuration de l'application
@@ -581,6 +582,52 @@ def events_nearby():
         return jsonify({
             "status": "error",
             "message": "Une erreur interne est survenue dans /api/events/nearby.",
+            "details": str(e),
+        }), 500
+
+
+# -------------------------------------------------
+# API : cinémas à proximité (via OpenStreetMap / Overpass)
+# -------------------------------------------------
+
+@app.route('/api/cinemas', methods=['GET'])
+def cinemas_nearby():
+    """Retourne les cinémas autour d'un point GPS (lat, lon) dans un rayon donné en km."""
+    try:
+        lat = request.args.get("lat", type=float)
+        lon = request.args.get("lon", type=float)
+        radius_param = request.args.get("radiusKm", type=float)
+
+        if lat is None or lon is None:
+            return jsonify({
+                "status": "error",
+                "message": "Paramètres lat et lon obligatoires pour /api/cinemas"
+            }), 400
+
+        # Rayon par défaut 10 km, borné pour éviter les requêtes trop grosses
+        radius_km = radius_param if (radius_param is not None and radius_param > 0) else 10.0
+        if radius_km > 100:
+            radius_km = 100.0
+
+        print(f"🎬 Recherche de cinémas autour de ({lat}, {lon}), rayon={radius_km}km")
+
+        cinemas = find_cinemas(lat, lon, radius_km)
+
+        return jsonify({
+            "status": "success",
+            "center": {"latitude": lat, "longitude": lon},
+            "radiusKm": radius_km,
+            "count": len(cinemas),
+            "cinemas": cinemas,
+        }), 200
+
+    except Exception as e:
+        print("🔥 Error in /api/cinemas:", repr(e))
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "message": "Une erreur interne est survenue dans /api/cinemas.",
             "details": str(e),
         }), 500
 
