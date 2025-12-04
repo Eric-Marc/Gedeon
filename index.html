@@ -189,7 +189,7 @@
             height: 100%;
             width: 100%;
             background: #e5e7eb;
-            touch-action: none; /* important pour pointer events sur mobile */
+            touch-action: none; /* important pour les pointer events sur mobile */
         }
 
         #map-instructions {
@@ -213,35 +213,6 @@
         #map-instructions.hidden {
             opacity: 0;
             pointer-events: none;
-        }
-
-        #longpress-indicator {
-            position: absolute;
-            width: 42px;
-            height: 42px;
-            z-index: 1001;
-            pointer-events: none;
-            transform: translate(-50%, -50%);
-            display: none;
-        }
-
-        #longpress-indicator.visible {
-            display: block;
-        }
-
-        .progress-circle-bg {
-            fill: rgba(15, 23, 42, 0.55);
-        }
-
-        .progress-circle {
-            fill: none;
-            stroke: #22c55e;
-            stroke-width: 3;
-            stroke-linecap: round;
-            stroke-dasharray: 188.5;
-            stroke-dashoffset: 188.5;
-            transform-origin: 50% 50%;
-            transform: rotate(-90deg);
         }
 
         .center-marker {
@@ -326,7 +297,7 @@
             <span class="slider-value"><span id="daysValue">7</span> jours</span>
         </div>
 
-        <div id="status" class="status waiting">👆 Maintenez appuyé sur la carte</div>
+        <div id="status" class="status waiting">👆 Long press (2s) sur la carte pour choisir un point</div>
     </div>
 </div>
 
@@ -363,18 +334,13 @@
 
 <div id="map-container">
     <div id="map"></div>
-    <div id="map-instructions">👆 Maintenez appuyé 2s pour choisir un point</div>
-    <svg id="longpress-indicator" viewBox="0 0 70 70">
-        <circle class="progress-circle-bg" cx="35" cy="35" r="30"></circle>
-        <circle class="progress-circle" cx="35" cy="35" r="30"></circle>
-    </svg>
+    <div id="map-instructions">👆 Maintenez appuyé 2 secondes sur la carte</div>
 </div>
 
 <script>
-    // Config
     const SERVER_URL = window.location.origin;
-    const LONGPRESS_DURATION = 2000;       // ms
-    const LONGPRESS_MOVE_THRESHOLD = 25;   // px tolérés pendant le long press
+    const LONGPRESS_DURATION = 2000;          // 2 secondes
+    const LONGPRESS_MOVE_THRESHOLD = 30;      // pixels tolérés pendant le long press
 
     // État global
     let map = null;
@@ -387,26 +353,19 @@
     let currentRadiusCircle = null;
     let currentCenterMarker = null;
     let cinemaLayer = null;
+    let clearOldSearchTimer = null;
 
-    // Long press (pointer events)
+    // État long-press
     const lpState = {
         active: false,
         startX: 0,
         startY: 0,
         startTime: 0,
-        timerId: null,
-        animId: null,
-        latlng: null
+        latlng: null,
+        timerId: null
     };
 
-    let clearOldSearchTimer = null;
-
-    // DOM
-    const indicator = document.getElementById('longpress-indicator');
-    const progressCircle = indicator.querySelector('.progress-circle');
-    const mapInstructions = document.getElementById('map-instructions');
-
-    // ----------- UTILS UI -----------
+    // ---------- UI UTIL ----------
 
     function updateStatus(message, type = 'waiting') {
         const el = document.getElementById('status');
@@ -442,7 +401,7 @@
         });
     }
 
-    // ----------- CARTE + LONG PRESS -----------
+    // ---------- CARTE + LONG PRESS ----------
 
     function initMap() {
         map = L.map('map', {
@@ -461,86 +420,90 @@
     }
 
     function setupLongPressOnMap() {
-    const mapEl = map.getContainer();
+        // On utilise les événements Leaflet 'mousedown' + 'touchstart'
+        map.on('mousedown', onPressStart);
+        map.on('touchstart', onPressStart);
 
-    mapEl.addEventListener('pointerdown', (ev) => {
-        // On ne prend que le clic gauche / touch / stylet
-        if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+        map.on('mousemove', onPressMove);
+        map.on('touchmove', onPressMove);
 
-        cancelLongPress(); // reset éventuel
+        map.on('mouseup', onPressEnd);
+        map.on('touchend', onPressEnd);
+        map.on('touchcancel', onPressEnd);
+    }
+
+    function getClientXYFromOriginalEvent(oe) {
+        // oe peut être un MouseEvent ou un TouchEvent
+        if (oe.touches && oe.touches.length > 0) {
+            return { x: oe.touches[0].clientX, y: oe.touches[0].clientY };
+        }
+        if (oe.changedTouches && oe.changedTouches.length > 0) {
+            return { x: oe.changedTouches[0].clientX, y: oe.changedTouches[0].clientY };
+        }
+        return { x: oe.clientX, y: oe.clientY };
+    }
+
+    function onPressStart(e) {
+        // Bouton gauche uniquement en mode souris
+        if (e.originalEvent && e.originalEvent.button !== undefined &&
+            e.originalEvent.button !== 0) {
+            return;
+        }
+
+        cancelLongPress();
+
+        const oe = e.originalEvent || e; // Leaflet enveloppe l'event natif
+        const { x, y } = getClientXYFromOriginalEvent(oe);
+
+        // Important : on laisse Leaflet calculer le latLng à partir de l'event natif
+        let latlng;
+        try {
+            latlng = map.mouseEventToLatLng(oe);
+        } catch (err) {
+            latlng = e.latlng || null;
+        }
+        if (!latlng) return;
 
         lpState.active = true;
-        lpState.startX = ev.clientX;
-        lpState.startY = ev.clientY;
+        lpState.startX = x;
+        lpState.startY = y;
         lpState.startTime = performance.now();
+        lpState.latlng = latlng;
 
-        // ❗ Laisser Leaflet convertir l’événement en lat/lon
-        lpState.latlng = map.mouseEventToLatLng(ev);
-
-        indicator.style.left = ev.clientX + 'px';
-        indicator.style.top  = ev.clientY + 'px';
-        progressCircle.style.strokeDashoffset = '188.5';
-        indicator.classList.add('visible');
-
-        // Animation / progression visuelle
-        lpState.animId = requestAnimationFrame(updateLongPressProgress);
-
-        // Timer de déclenchement final
         lpState.timerId = setTimeout(() => {
             if (!lpState.active || !lpState.latlng) return;
             const { lat, lng } = lpState.latlng;
             cancelLongPress();
-            mapInstructions.classList.add('hidden');
+            document.getElementById('map-instructions').classList.add('hidden');
             onLocationSelected(lat, lng);
         }, LONGPRESS_DURATION);
-    });
+    }
 
-    mapEl.addEventListener('pointermove', (ev) => {
+    function onPressMove(e) {
         if (!lpState.active) return;
-        const dx = ev.clientX - lpState.startX;
-        const dy = ev.clientY - lpState.startY;
+        const oe = e.originalEvent || e;
+        const { x, y } = getClientXYFromOriginalEvent(oe);
+        const dx = x - lpState.startX;
+        const dy = y - lpState.startY;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist > LONGPRESS_MOVE_THRESHOLD) {
             cancelLongPress();
         }
-    });
+    }
 
-    ['pointerup', 'pointercancel', 'pointerleave'].forEach(type => {
-        mapEl.addEventListener(type, () => {
-            cancelLongPress();
-        });
-    });
-}
-
-
-    function updateLongPressProgress() {
-        if (!lpState.active) {
-            progressCircle.style.strokeDashoffset = '188.5';
-            return;
-        }
-        const elapsed = performance.now() - lpState.startTime;
-        const progress = Math.min(elapsed / LONGPRESS_DURATION, 1);
-        const offset = 188.5 * (1 - progress);
-        progressCircle.style.strokeDashoffset = String(offset);
-
-        if (progress < 1 && lpState.active) {
-            lpState.animId = requestAnimationFrame(updateLongPressProgress);
-        }
+    function onPressEnd() {
+        if (!lpState.active) return;
+        // Si le timer n'a pas eu le temps de déclencher, on annule
+        cancelLongPress();
     }
 
     function cancelLongPress() {
-        if (!lpState.active && !lpState.timerId && !lpState.animId) return;
-        lpState.active = false;
         if (lpState.timerId) {
             clearTimeout(lpState.timerId);
             lpState.timerId = null;
         }
-        if (lpState.animId) {
-            cancelAnimationFrame(lpState.animId);
-            lpState.animId = null;
-        }
-        indicator.classList.remove('visible');
-        progressCircle.style.strokeDashoffset = '188.5';
+        lpState.active = false;
+        lpState.latlng = null;
     }
 
     function clearOldSearch() {
@@ -563,7 +526,7 @@
         updateStats([]);
     }
 
-    // ----------- POSITION / GÉOCODAGE -----------
+    // ---------- POSITION / GÉOCODAGE ----------
 
     function getUserLocation() {
         if (!navigator.geolocation) {
@@ -572,14 +535,14 @@
         }
 
         clearOldSearch();
-        updateStatus('🔍 Recherche de votre position...', 'active');
+        updateStatus('🔍 Recherche de votre position…', 'active');
 
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 const lat = pos.coords.latitude;
                 const lon = pos.coords.longitude;
                 map.setView([lat, lon], 11);
-                mapInstructions.classList.add('hidden');
+                document.getElementById('map-instructions').classList.add('hidden');
                 onLocationSelected(lat, lon);
             },
             (err) => {
@@ -629,7 +592,7 @@
     }
 
     function onLocationSelected(lat, lon) {
-        // Filtre France métropolitaine simple
+        // Filtre simple France métropolitaine
         const isInFrance = (lat >= 41 && lat <= 51) && (lon >= -5 && lon <= 10);
         if (!isInFrance) {
             updateStatus('⚠️ Position hors France métropolitaine', 'error');
@@ -661,7 +624,7 @@
         });
     }
 
-    // ----------- ÉVÉNEMENTS (OpenAgenda) -----------
+    // ---------- ÉVÉNEMENTS (OpenAgenda) ----------
 
     function displayEventsOnMap(events, centerLat, centerLon, radiusKm) {
         if (currentMarkerCluster) map.removeLayer(currentMarkerCluster);
@@ -774,7 +737,7 @@
             });
     }
 
-    // ----------- CINÉMAS (OSM + Allociné) -----------
+    // ---------- CINÉMAS (OSM + Allociné) ----------
 
     function displayCinemasOnMap(cinemas) {
         if (!map) return;
@@ -876,7 +839,7 @@
             });
     }
 
-    // ----------- SLIDERS -----------
+    // ---------- SLIDERS ----------
 
     function setupSliders() {
         const radiusRange = document.getElementById('radiusRange');
@@ -904,12 +867,12 @@
         });
     }
 
-    // ----------- INIT -----------
+    // ---------- INIT ----------
 
     window.addEventListener('load', () => {
         initMap();
         setupSliders();
-        updateStatus('👆 Maintenez appuyé sur la carte', 'waiting');
+        updateStatus('👆 Long press (2s) sur la carte pour choisir un point', 'waiting');
     });
 </script>
 </body>
