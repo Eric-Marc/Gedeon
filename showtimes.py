@@ -1,6 +1,5 @@
 import unicodedata
 from datetime import date, datetime
-
 import requests
 from allocineAPI.allocineAPI import allocineAPI
 
@@ -109,47 +108,80 @@ def _extract_department_name_from_address(address):
     return None
 
 
+def _call_nominatim(lat, lon, zoom):
+    """Appel générique Nominatim, retourne le dict address ou {}."""
+    url = "https://nominatim.openstreetmap.org/reverse"
+    params = {
+        "lat": lat,
+        "lon": lon,
+        "format": "json",
+        "zoom": zoom,
+        "addressdetails": 1,
+    }
+    headers = {
+        "User-Agent": "gedeon-cinemas-showtimes/1.0"
+    }
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        if isinstance(data, dict):
+            return data.get("address", {}) or {}
+        return {}
+    except requests.RequestException as e:
+        print(f"❌ Erreur Nominatim (reverse zoom={zoom}) pour ({lat}, {lon}): {e}")
+        return {}
+
+
 def _reverse_geocode_department(lat, lon):
     """Retourne le nom du département via Nominatim pour un point GPS."""
     key = (round(lat, 3), round(lon, 3))
     if key in _DEPT_NAME_CACHE:
         return _DEPT_NAME_CACHE[key]
 
-    url = "https://nominatim.openstreetmap.org/reverse"
-    params = {
-        "lat": lat,
-        "lon": lon,
-        "format": "json",
-        "zoom": 10,
-        "addressdetails": 1,
-    }
-    headers = {
-        "User-Agent": "gedeon-cinemas-showtimes/1.0"
-    }
+    # 1er essai : zoom moyen (département/région)
+    address = _call_nominatim(lat, lon, zoom=10)
+    dept_name = _extract_department_name_from_address(address)
 
-    try:
-        r = requests.get(url, params=params, headers=headers, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        address = data.get("address", {}) if isinstance(data, dict) else {}
+    # Cas particulier : Île-de-France sans county/postcode -> on retente en zoom fin
+    state = address.get("state")
+    county = address.get("county")
+    postcode = address.get("postcode")
 
-        dept_name = _extract_department_name_from_address(address)
+    if not dept_name and state == "Île-de-France" and not county and not postcode:
+        print(f"ℹ️ Requête Nominatim plus précise pour point en Île-de-France sans code postal ({lat}, {lon})")
+        address2 = _call_nominatim(lat, lon, zoom=18)
+        dept_name = _extract_department_name_from_address(address2)
         if dept_name:
             _DEPT_NAME_CACHE[key] = dept_name
-            print(f"🗺️ Département détecté: {dept_name}")
+            print(f"🗺️ Département détecté (2e passe): {dept_name}")
             return dept_name
-
-        # Log verbeux pour debug
+        # log détaillé
         print(
-            "⚠️ Impossible de déterminer le département pour "
+            "⚠️ Impossible de déterminer le département (2e passe) pour "
             f"({lat}, {lon}) via Nominatim "
-            f"(state={address.get('state')!r}, county={address.get('county')!r}, "
-            f"postcode={address.get('postcode')!r})"
+            f"(state={address2.get('state')!r}, county={address2.get('county')!r}, "
+            f"postcode={address2.get('postcode')!r})"
         )
 
-    except requests.RequestException as e:
-        print(f"❌ Erreur Nominatim (reverse) pour ({lat}, {lon}): {e}")
+    if dept_name:
+        _DEPT_NAME_CACHE[key] = dept_name
+        print(f"🗺️ Département détecté: {dept_name}")
+        return dept_name
 
+    # Dernier fallback : approximation grossière pour Paris intra-muros
+    if 48.80 <= lat <= 48.90 and 2.25 <= lon <= 2.42:
+        dept_name = "Paris"
+        _DEPT_NAME_CACHE[key] = dept_name
+        print(f"🗺️ Département approximé via bounding box: {dept_name}")
+        return dept_name
+
+    # Échec complet
+    print(
+        "⚠️ Impossible de déterminer le département pour "
+        f"({lat}, {lon}) via Nominatim "
+        f"(state={state!r}, county={county!r}, postcode={postcode!r})"
+    )
     _DEPT_NAME_CACHE[key] = None
     return None
 
@@ -226,157 +258,3 @@ def _find_best_allocine_cinema(dept_id, target_name):
     target_norm = _normalize_text(target_name)
     if not target_norm:
         return None
-
-    best = None
-    best_score = -1
-
-    for c in candidates:
-        cname = c.get("name")
-        if not cname:
-            continue
-        c_norm = _normalize_text(cname)
-
-        # match exact
-        if c_norm == target_norm:
-            return c
-
-        score = 0
-        if target_norm in c_norm or c_norm in target_norm:
-            score += 3
-
-        # Overlap de mots
-        t_tokens = set(target_norm.split())
-        c_tokens = set(c_norm.split())
-        if t_tokens and c_tokens:
-            overlap = len(t_tokens & c_tokens)
-            score += overlap
-
-        if score > best_score:
-            best_score = score
-            best = c
-
-    # Seuil minimal pour éviter les faux positifs
-    if best is not None and best_score >= 2:
-        return best
-    return None
-
-
-# -------------------------------------------------------------------
-# Formatage des horaires
-# -------------------------------------------------------------------
-
-def _format_showtime_list(raw_list):
-    """Convertit les horaires ISO en 'HH:MM' lisibles."""
-    times = []
-    for s in raw_list or []:
-        try:
-            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-            times.append(dt.strftime("%H:%M"))
-        except Exception:
-            continue
-    return times
-
-
-# -------------------------------------------------------------------
-# API publique utilisée par cinemas.py / server.py
-# -------------------------------------------------------------------
-
-def get_showtimes_for_cinema(cinema_name, cinema_lat, cinema_lon, date_str=None):
-    """
-    Retourne les séances du jour pour un cinéma (via Allociné) :
-
-    [
-      {
-        "title": "...",
-        "duration": "...",
-        "vf": ["14:00", "16:30"],
-        "vo": [...],
-        "vost": [...]
-      },
-      ...
-    ]
-    """
-    if date_str is None:
-        date_str = _get_default_date_str()
-
-    try:
-        cinema_lat = float(cinema_lat)
-        cinema_lon = float(cinema_lon)
-    except (TypeError, ValueError):
-        return []
-
-    dept_name = _reverse_geocode_department(cinema_lat, cinema_lon)
-    if not dept_name:
-        return []
-
-    dept_id = _get_department_id_for_name(dept_name)
-    if not dept_id:
-        print(f"⚠️ Impossible de trouver l'id de département Allociné pour '{dept_name}'")
-        return []
-
-    best_cinema = _find_best_allocine_cinema(dept_id, cinema_name)
-    if not best_cinema:
-        print(f"⚠️ Aucun cinéma Allociné correspondant pour '{cinema_name}' dans {dept_id}")
-        return []
-
-    cinema_id = best_cinema.get("id")
-    if not cinema_id:
-        return []
-
-    try:
-        raw_showtimes = _api.get_showtime(cinema_id, date_str) or []
-    except Exception as e:
-        print(f"❌ Erreur Allociné get_showtime({cinema_id}, {date_str}): {e}")
-        return []
-
-    formatted = []
-    for entry in raw_showtimes:
-        title = entry.get("title")
-        duration = entry.get("duration")
-        vf_list = _format_showtime_list(entry.get("VF"))
-        vo_list = _format_showtime_list(entry.get("VO"))
-        vost_list = _format_showtime_list(entry.get("VOST"))
-
-        formatted.append({
-            "title": title,
-            "duration": duration,
-            "vf": vf_list,
-            "vo": vo_list,
-            "vost": vost_list,
-        })
-
-    return formatted
-
-
-def enrich_cinemas_with_showtimes(cinemas, date_str=None, max_cinemas=8):
-    """
-    Ajoute les séances du jour aux objets cinémas (in-place) :
-
-    cinéma["showtimes"] = [...]
-    cinéma["showtimesDate"] = "YYYY-MM-DD"
-    """
-    if not cinemas:
-        return cinemas
-
-    if date_str is None:
-        date_str = _get_default_date_str()
-
-    count = 0
-    for cinema in cinemas:
-        if count >= max_cinemas:
-            break
-
-        name = cinema.get("name")
-        lat = cinema.get("latitude")
-        lon = cinema.get("longitude")
-        if not name or lat is None or lon is None:
-            continue
-
-        showtimes = get_showtimes_for_cinema(name, lat, lon, date_str=date_str)
-        if showtimes:
-            cinema["showtimes"] = showtimes
-            cinema["showtimesDate"] = date_str
-            count += 1
-
-    print(f"🎞️ Séances ajoutées pour {count} cinémas")
-    return cinemas
