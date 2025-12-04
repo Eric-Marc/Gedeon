@@ -12,6 +12,19 @@ _DEPARTMENTS_BY_NAME = None   # { normalized_name: id }
 _CINEMAS_BY_DEPT = {}         # { dept_id: [cinema dict ...] }
 _DEPT_NAME_CACHE = {}         # { (lat_rounded, lon_rounded): dept_name }
 
+# Mapping simple code postal -> nom de département
+# (on couvre surtout l'Île-de-France ici, tu peux l'étendre au besoin)
+DEPT_CODE_TO_NAME = {
+    "75": "Paris",
+    "77": "Seine-et-Marne",
+    "78": "Yvelines",
+    "91": "Essonne",
+    "92": "Hauts-de-Seine",
+    "93": "Seine-Saint-Denis",
+    "94": "Val-de-Marne",
+    "95": "Val-d'Oise",
+}
+
 
 def _normalize_text(s: str) -> str:
     """Normalisation simple : minuscules, suppression des accents / ponctuation."""
@@ -28,6 +41,67 @@ def _normalize_text(s: str) -> str:
 
 def _get_default_date_str() -> str:
     return date.today().strftime("%Y-%m-%d")
+
+
+def _extract_department_name_from_address(address: dict) -> str | None:
+    """
+    Essaie de déduire un *département* français à partir de l'adresse Nominatim.
+    - On préfère county / state_district (qui sont souvent le département)
+    - On gère le cas particulier 'Île-de-France' via le code postal
+    - Dernier recours : code postal -> département
+    """
+
+    if not address:
+        return None
+
+    def clean(name: str | None) -> str | None:
+        if not name:
+            return None
+        # On enlève des préfixes du type "Département de ..."
+        prefixes = (
+            "Département de ",
+            "Departement de ",
+            "Department of ",
+            "Département ",
+            "Department "
+        )
+        for p in prefixes:
+            if name.startswith(p):
+                name = name[len(p):]
+        return name
+
+    # 1. priorité : county / state_district
+    for key in ("county", "state_district"):
+        raw = address.get(key)
+        if raw:
+            return clean(raw)
+
+    # 2. fallback : state (souvent la région)
+    state = address.get("state")
+
+    # Cas particulier très fréquent : Île-de-France
+    if state == "Île-de-France":
+        postcode = (address.get("postcode") or "").strip()
+        if len(postcode) >= 2:
+            code2 = postcode[:2]
+            dept = DEPT_CODE_TO_NAME.get(code2)
+            if dept:
+                return dept
+        # On ne retourne pas "Île-de-France" car ce n'est pas un département Allociné
+        return None
+
+    if state:
+        return clean(state)
+
+    # 3. dernier recours : code postal
+    postcode = (address.get("postcode") or "").strip()
+    if len(postcode) >= 2:
+        code2 = postcode[:2]
+        dept = DEPT_CODE_TO_NAME.get(code2)
+        if dept:
+            return dept
+
+    return None
 
 
 def _reverse_geocode_department(lat: float, lon: float) -> str | None:
@@ -54,15 +128,19 @@ def _reverse_geocode_department(lat: float, lon: float) -> str | None:
         data = r.json()
         address = data.get("address", {}) if isinstance(data, dict) else {}
 
-        dept_name = (
-            address.get("county")
-            or address.get("state_district")
-            or address.get("state")
-        )
+        dept_name = _extract_department_name_from_address(address)
         if dept_name:
             _DEPT_NAME_CACHE[key] = dept_name
             print(f"🗺️ Département détecté: {dept_name}")
             return dept_name
+
+        # Log un peu plus verbeux pour debug
+        print(
+            "⚠️ Impossible de déterminer le département pour "
+            f"({lat}, {lon}) via Nominatim "
+            f"(state={address.get('state')!r}, county={address.get('county')!r}, "
+            f"postcode={address.get('postcode')!r})"
+        )
 
     except requests.RequestException as e:
         print(f"❌ Erreur Nominatim (reverse) pour ({lat}, {lon}): {e}")
@@ -104,13 +182,16 @@ def _get_department_id_for_name(name: str) -> str | None:
         return None
 
     norm = _normalize_text(name)
+
+    # 1) match exact
     if norm in _DEPARTMENTS_BY_NAME:
         return _DEPARTMENTS_BY_NAME[norm]
 
-    # Petites tolérances (ex: "departement de herault" vs "herault")
+    # 2) tolérance : inclusion dans un sens ou dans l'autre
     for k, did in _DEPARTMENTS_BY_NAME.items():
         if norm in k or k in norm:
             return did
+
     return None
 
 
@@ -261,25 +342,4 @@ def enrich_cinemas_with_showtimes(cinemas: list, date_str: str | None = None,
     if not cinemas:
         return cinemas
 
-    if date_str is None:
-        date_str = _get_default_date_str()
-
-    count = 0
-    for cinema in cinemas:
-        if count >= max_cinemas:
-            break
-
-        name = cinema.get("name")
-        lat = cinema.get("latitude")
-        lon = cinema.get("longitude")
-        if not name or lat is None or lon is None:
-            continue
-
-        showtimes = get_showtimes_for_cinema(name, lat, lon, date_str=date_str)
-        if showtimes:
-            cinema["showtimes"] = showtimes
-            cinema["showtimesDate"] = date_str
-            count += 1
-
-    print(f"🎞️ Séances ajoutées pour {count} cinémas")
-    return cinemas
+    if
