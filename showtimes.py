@@ -1,17 +1,25 @@
 import unicodedata
 from datetime import date, datetime
+
 import requests
 from allocineAPI.allocineAPI import allocineAPI
 
-# Client Allociné
+# -------------------------------------------------
+# Client Allociné et caches
+# -------------------------------------------------
+
 _api = allocineAPI()
 
-# Caches simples
-_DEPARTMENTS_BY_NAME = None   # { normalized_name: id }
-_CINEMAS_BY_DEPT = {}         # { dept_id: [cinema dict ...] }
-_DEPT_NAME_CACHE = {}         # { (lat_rounded, lon_rounded): dept_name }
+# { normalized_name: id }
+_DEPARTMENTS_BY_NAME = None
 
-# Mapping code postal -> nom de département (principalement Île-de-France, extensible)
+# { dept_id: [cinema dict, ...] }
+_CINEMAS_BY_DEPT = {}
+
+# { (lat_rounded, lon_rounded): dept_name_or_None }
+_DEPT_NAME_CACHE = {}
+
+# Mapping code postal -> nom de département (Île-de-France, extensible)
 DEPT_CODE_TO_NAME = {
     "75": "Paris",
     "77": "Seine-et-Marne",
@@ -24,9 +32,9 @@ DEPT_CODE_TO_NAME = {
 }
 
 
-# -------------------------------------------------------------------
-# Utils texte
-# -------------------------------------------------------------------
+# -------------------------------------------------
+# Utils texte / date
+# -------------------------------------------------
 
 def _normalize_text(s):
     """Normalisation simple : minuscules, suppression des accents / ponctuation."""
@@ -45,9 +53,9 @@ def _get_default_date_str():
     return date.today().strftime("%Y-%m-%d")
 
 
-# -------------------------------------------------------------------
+# -------------------------------------------------
 # Détection du département via Nominatim
-# -------------------------------------------------------------------
+# -------------------------------------------------
 
 def _clean_dept_name(name):
     if not name:
@@ -84,7 +92,7 @@ def _extract_department_name_from_address(address):
     # 2. fallback : state (souvent la région)
     state = address.get("state")
     if state == "Île-de-France":
-        # Cas très fréquent : on dérive le département via le code postal
+        # Cas fréquent : on dérive le département via le code postal
         postcode = (address.get("postcode") or "").strip()
         if len(postcode) >= 2:
             code2 = postcode[:2]
@@ -169,7 +177,7 @@ def _reverse_geocode_department(lat, lon):
         print(f"🗺️ Département détecté: {dept_name}")
         return dept_name
 
-    # Dernier fallback : approximation grossière pour Paris intra-muros
+    # Dernier fallback : approximation pour Paris intra-muros
     if 48.80 <= lat <= 48.90 and 2.25 <= lon <= 2.42:
         dept_name = "Paris"
         _DEPT_NAME_CACHE[key] = dept_name
@@ -186,9 +194,9 @@ def _reverse_geocode_department(lat, lon):
     return None
 
 
-# -------------------------------------------------------------------
+# -------------------------------------------------
 # Récupération des départements / cinémas Allociné
-# -------------------------------------------------------------------
+# -------------------------------------------------
 
 def _load_departments():
     global _DEPARTMENTS_BY_NAME
@@ -258,3 +266,157 @@ def _find_best_allocine_cinema(dept_id, target_name):
     target_norm = _normalize_text(target_name)
     if not target_norm:
         return None
+
+    best = None
+    best_score = -1
+
+    for c in candidates:
+        cname = c.get("name")
+        if not cname:
+            continue
+        c_norm = _normalize_text(cname)
+
+        # match exact
+        if c_norm == target_norm:
+            return c
+
+        score = 0
+        if target_norm in c_norm or c_norm in target_norm:
+            score += 3
+
+        # Overlap de mots
+        t_tokens = set(target_norm.split())
+        c_tokens = set(c_norm.split())
+        if t_tokens and c_tokens:
+            overlap = len(t_tokens & c_tokens)
+            score += overlap
+
+        if score > best_score:
+            best_score = score
+            best = c
+
+    # Seuil minimal pour éviter les faux positifs
+    if best is not None and best_score >= 2:
+        return best
+    return None
+
+
+# -------------------------------------------------
+# Formatage des horaires
+# -------------------------------------------------
+
+def _format_showtime_list(raw_list):
+    """Convertit les horaires ISO en 'HH:MM' lisibles."""
+    times = []
+    for s in raw_list or []:
+        try:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            times.append(dt.strftime("%H:%M"))
+        except Exception:
+            continue
+    return times
+
+
+# -------------------------------------------------
+# API publique utilisée par cinemas.py / server.py
+# -------------------------------------------------
+
+def get_showtimes_for_cinema(cinema_name, cinema_lat, cinema_lon, date_str=None):
+    """
+    Retourne les séances du jour pour un cinéma (via Allociné) :
+
+    [
+      {
+        "title": "...",
+        "duration": "...",
+        "vf": ["14:00", "16:30"],
+        "vo": [...],
+        "vost": [...]
+      },
+      ...
+    ]
+    """
+    if date_str is None:
+        date_str = _get_default_date_str()
+
+    try:
+        cinema_lat = float(cinema_lat)
+        cinema_lon = float(cinema_lon)
+    except (TypeError, ValueError):
+        return []
+
+    dept_name = _reverse_geocode_department(cinema_lat, cinema_lon)
+    if not dept_name:
+        return []
+
+    dept_id = _get_department_id_for_name(dept_name)
+    if not dept_id:
+        print(f"⚠️ Impossible de trouver l'id de département Allociné pour '{dept_name}'")
+        return []
+
+    best_cinema = _find_best_allocine_cinema(dept_id, cinema_name)
+    if not best_cinema:
+        print(f"⚠️ Aucun cinéma Allociné correspondant pour '{cinema_name}' dans {dept_id}")
+        return []
+
+    cinema_id = best_cinema.get("id")
+    if not cinema_id:
+        return []
+
+    try:
+        raw_showtimes = _api.get_showtime(cinema_id, date_str) or []
+    except Exception as e:
+        print(f"❌ Erreur Allociné get_showtime({cinema_id}, {date_str}): {e}")
+        return []
+
+    formatted = []
+    for entry in raw_showtimes:
+        title = entry.get("title")
+        duration = entry.get("duration")
+        vf_list = _format_showtime_list(entry.get("VF"))
+        vo_list = _format_showtime_list(entry.get("VO"))
+        vost_list = _format_showtime_list(entry.get("VOST"))
+
+        formatted.append({
+            "title": title,
+            "duration": duration,
+            "vf": vf_list,
+            "vo": vo_list,
+            "vost": vost_list,
+        })
+
+    return formatted
+
+
+def enrich_cinemas_with_showtimes(cinemas, date_str=None, max_cinemas=8):
+    """
+    Ajoute les séances du jour aux objets cinémas (in-place) :
+
+    cinéma["showtimes"] = [...]
+    cinéma["showtimesDate"] = "YYYY-MM-DD"
+    """
+    if not cinemas:
+        return cinemas
+
+    if date_str is None:
+        date_str = _get_default_date_str()
+
+    count = 0
+    for cinema in cinemas:
+        if count >= max_cinemas:
+            break
+
+        name = cinema.get("name")
+        lat = cinema.get("latitude")
+        lon = cinema.get("longitude")
+        if not name or lat is None or lon is None:
+            continue
+
+        showtimes = get_showtimes_for_cinema(name, lat, lon, date_str=date_str)
+        if showtimes:
+            cinema["showtimes"] = showtimes
+            cinema["showtimesDate"] = date_str
+            count += 1
+
+    print(f"🎞️ Séances ajoutées pour {count} cinémas")
+    return cinemas
