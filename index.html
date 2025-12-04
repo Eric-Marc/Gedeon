@@ -461,61 +461,57 @@
     }
 
     function setupLongPressOnMap() {
-        const mapEl = map.getContainer();
+    const mapEl = map.getContainer();
 
-        mapEl.addEventListener('pointerdown', (ev) => {
-            // On ne prend que le clic gauche / touch / stylet
-            if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    mapEl.addEventListener('pointerdown', (ev) => {
+        // On ne prend que le clic gauche / touch / stylet
+        if (ev.pointerType === 'mouse' && ev.button !== 0) return;
 
-            cancelLongPress(); // reset éventuel
+        cancelLongPress(); // reset éventuel
 
-            const rect = mapEl.getBoundingClientRect();
-            const x = ev.clientX - rect.left;
-            const y = ev.clientY - rect.top;
+        lpState.active = true;
+        lpState.startX = ev.clientX;
+        lpState.startY = ev.clientY;
+        lpState.startTime = performance.now();
 
-            lpState.active = true;
-            lpState.startX = x;
-            lpState.startY = y;
-            lpState.startTime = performance.now();
-            lpState.latlng = map.containerPointToLatLng(L.point(x, y));
+        // ❗ Laisser Leaflet convertir l’événement en lat/lon
+        lpState.latlng = map.mouseEventToLatLng(ev);
 
-            indicator.style.left = ev.clientX + 'px';
-            indicator.style.top  = ev.clientY + 'px';
-            progressCircle.style.strokeDashoffset = '188.5';
-            indicator.classList.add('visible');
+        indicator.style.left = ev.clientX + 'px';
+        indicator.style.top  = ev.clientY + 'px';
+        progressCircle.style.strokeDashoffset = '188.5';
+        indicator.classList.add('visible');
 
-            // Animation / progression visuelle
-            lpState.animId = requestAnimationFrame(updateLongPressProgress);
+        // Animation / progression visuelle
+        lpState.animId = requestAnimationFrame(updateLongPressProgress);
 
-            // Timer de déclenchement final
-            lpState.timerId = setTimeout(() => {
-                if (!lpState.active || !lpState.latlng) return;
-                const { lat, lng } = lpState.latlng;
-                cancelLongPress();
-                mapInstructions.classList.add('hidden');
-                onLocationSelected(lat, lng);
-            }, LONGPRESS_DURATION);
+        // Timer de déclenchement final
+        lpState.timerId = setTimeout(() => {
+            if (!lpState.active || !lpState.latlng) return;
+            const { lat, lng } = lpState.latlng;
+            cancelLongPress();
+            mapInstructions.classList.add('hidden');
+            onLocationSelected(lat, lng);
+        }, LONGPRESS_DURATION);
+    });
+
+    mapEl.addEventListener('pointermove', (ev) => {
+        if (!lpState.active) return;
+        const dx = ev.clientX - lpState.startX;
+        const dy = ev.clientY - lpState.startY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > LONGPRESS_MOVE_THRESHOLD) {
+            cancelLongPress();
+        }
+    });
+
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(type => {
+        mapEl.addEventListener(type, () => {
+            cancelLongPress();
         });
+    });
+}
 
-        mapEl.addEventListener('pointermove', (ev) => {
-            if (!lpState.active) return;
-            const rect = mapEl.getBoundingClientRect();
-            const x = ev.clientX - rect.left;
-            const y = ev.clientY - rect.top;
-            const dx = x - lpState.startX;
-            const dy = y - lpState.startY;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-            if (dist > LONGPRESS_MOVE_THRESHOLD) {
-                cancelLongPress();
-            }
-        });
-
-        ['pointerup', 'pointercancel', 'pointerleave'].forEach(type => {
-            mapEl.addEventListener(type, () => {
-                cancelLongPress();
-            });
-        });
-    }
 
     function updateLongPressProgress() {
         if (!lpState.active) {
