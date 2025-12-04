@@ -12,8 +12,7 @@ _DEPARTMENTS_BY_NAME = None   # { normalized_name: id }
 _CINEMAS_BY_DEPT = {}         # { dept_id: [cinema dict ...] }
 _DEPT_NAME_CACHE = {}         # { (lat_rounded, lon_rounded): dept_name }
 
-# Mapping simple code postal -> nom de département
-# (on couvre surtout l'Île-de-France ici, tu peux l'étendre au besoin)
+# Mapping code postal -> nom de département (principalement Île-de-France, extensible)
 DEPT_CODE_TO_NAME = {
     "75": "Paris",
     "77": "Seine-et-Marne",
@@ -26,7 +25,11 @@ DEPT_CODE_TO_NAME = {
 }
 
 
-def _normalize_text(s: str) -> str:
+# -------------------------------------------------------------------
+# Utils texte
+# -------------------------------------------------------------------
+
+def _normalize_text(s):
     """Normalisation simple : minuscules, suppression des accents / ponctuation."""
     if not s:
         return ""
@@ -39,59 +42,61 @@ def _normalize_text(s: str) -> str:
     return s
 
 
-def _get_default_date_str() -> str:
+def _get_default_date_str():
     return date.today().strftime("%Y-%m-%d")
 
 
-def _extract_department_name_from_address(address: dict) -> str | None:
+# -------------------------------------------------------------------
+# Détection du département via Nominatim
+# -------------------------------------------------------------------
+
+def _clean_dept_name(name):
+    if not name:
+        return None
+    prefixes = (
+        "Département de ",
+        "Departement de ",
+        "Department of ",
+        "Département ",
+        "Department ",
+    )
+    for p in prefixes:
+        if name.startswith(p):
+            name = name[len(p):]
+    return name
+
+
+def _extract_department_name_from_address(address):
     """
     Essaie de déduire un *département* français à partir de l'adresse Nominatim.
-    - On préfère county / state_district (qui sont souvent le département)
+    - On préfère county / state_district
     - On gère le cas particulier 'Île-de-France' via le code postal
     - Dernier recours : code postal -> département
     """
-
     if not address:
         return None
-
-    def clean(name: str | None) -> str | None:
-        if not name:
-            return None
-        # On enlève des préfixes du type "Département de ..."
-        prefixes = (
-            "Département de ",
-            "Departement de ",
-            "Department of ",
-            "Département ",
-            "Department "
-        )
-        for p in prefixes:
-            if name.startswith(p):
-                name = name[len(p):]
-        return name
 
     # 1. priorité : county / state_district
     for key in ("county", "state_district"):
         raw = address.get(key)
         if raw:
-            return clean(raw)
+            return _clean_dept_name(raw)
 
     # 2. fallback : state (souvent la région)
     state = address.get("state")
-
-    # Cas particulier très fréquent : Île-de-France
     if state == "Île-de-France":
+        # Cas très fréquent : on dérive le département via le code postal
         postcode = (address.get("postcode") or "").strip()
         if len(postcode) >= 2:
             code2 = postcode[:2]
             dept = DEPT_CODE_TO_NAME.get(code2)
             if dept:
                 return dept
-        # On ne retourne pas "Île-de-France" car ce n'est pas un département Allociné
+        # On ne renvoie pas la région, car Allociné veut un département
         return None
 
     if state:
-        return clean(state)
+        return _clean_dept_name(state)
 
     # 3. dernier recours : code postal
     postcode = (address.get("postcode") or "").strip()
@@ -104,7 +109,7 @@ def _extract_department_name_from_address(address: dict) -> str | None:
     return None
 
 
-def _reverse_geocode_department(lat: float, lon: float) -> str | None:
+def _reverse_geocode_department(lat, lon):
     """Retourne le nom du département via Nominatim pour un point GPS."""
     key = (round(lat, 3), round(lon, 3))
     if key in _DEPT_NAME_CACHE:
@@ -119,7 +124,7 @@ def _reverse_geocode_department(lat: float, lon: float) -> str | None:
         "addressdetails": 1,
     }
     headers = {
-        "User-Agent": "gedeon-cinemas-showtimes/1.0 (eric@ericmahe.com)"
+        "User-Agent": "gedeon-cinemas-showtimes/1.0"
     }
 
     try:
@@ -134,7 +139,7 @@ def _reverse_geocode_department(lat: float, lon: float) -> str | None:
             print(f"🗺️ Département détecté: {dept_name}")
             return dept_name
 
-        # Log un peu plus verbeux pour debug
+        # Log verbeux pour debug
         print(
             "⚠️ Impossible de déterminer le département pour "
             f"({lat}, {lon}) via Nominatim "
@@ -148,6 +153,10 @@ def _reverse_geocode_department(lat: float, lon: float) -> str | None:
     _DEPT_NAME_CACHE[key] = None
     return None
 
+
+# -------------------------------------------------------------------
+# Récupération des départements / cinémas Allociné
+# -------------------------------------------------------------------
 
 def _load_departments():
     global _DEPARTMENTS_BY_NAME
@@ -174,7 +183,7 @@ def _load_departments():
     print(f"📚 {len(mapping)} départements Allociné chargés")
 
 
-def _get_department_id_for_name(name: str) -> str | None:
+def _get_department_id_for_name(name):
     if not name:
         return None
     _load_departments()
@@ -187,7 +196,7 @@ def _get_department_id_for_name(name: str) -> str | None:
     if norm in _DEPARTMENTS_BY_NAME:
         return _DEPARTMENTS_BY_NAME[norm]
 
-    # 2) tolérance : inclusion dans un sens ou dans l'autre
+    # 2) tolérance : inclusion
     for k, did in _DEPARTMENTS_BY_NAME.items():
         if norm in k or k in norm:
             return did
@@ -195,7 +204,7 @@ def _get_department_id_for_name(name: str) -> str | None:
     return None
 
 
-def _get_cinemas_for_dept(dept_id: str):
+def _get_cinemas_for_dept(dept_id):
     if dept_id in _CINEMAS_BY_DEPT:
         return _CINEMAS_BY_DEPT[dept_id]
     try:
@@ -209,7 +218,7 @@ def _get_cinemas_for_dept(dept_id: str):
         return []
 
 
-def _find_best_allocine_cinema(dept_id: str, target_name: str) -> dict | None:
+def _find_best_allocine_cinema(dept_id, target_name):
     candidates = _get_cinemas_for_dept(dept_id)
     if not candidates:
         return None
@@ -227,6 +236,7 @@ def _find_best_allocine_cinema(dept_id: str, target_name: str) -> dict | None:
             continue
         c_norm = _normalize_text(cname)
 
+        # match exact
         if c_norm == target_norm:
             return c
 
@@ -245,11 +255,15 @@ def _find_best_allocine_cinema(dept_id: str, target_name: str) -> dict | None:
             best_score = score
             best = c
 
-    # Seuil minimal : si vraiment trop faible, on évite le faux positif
+    # Seuil minimal pour éviter les faux positifs
     if best is not None and best_score >= 2:
         return best
     return None
 
+
+# -------------------------------------------------------------------
+# Formatage des horaires
+# -------------------------------------------------------------------
 
 def _format_showtime_list(raw_list):
     """Convertit les horaires ISO en 'HH:MM' lisibles."""
@@ -263,8 +277,11 @@ def _format_showtime_list(raw_list):
     return times
 
 
-def get_showtimes_for_cinema(cinema_name: str, cinema_lat: float, cinema_lon: float,
-                             date_str: str | None = None):
+# -------------------------------------------------------------------
+# API publique utilisée par cinemas.py / server.py
+# -------------------------------------------------------------------
+
+def get_showtimes_for_cinema(cinema_name, cinema_lat, cinema_lon, date_str=None):
     """
     Retourne les séances du jour pour un cinéma (via Allociné) :
 
@@ -331,8 +348,7 @@ def get_showtimes_for_cinema(cinema_name: str, cinema_lat: float, cinema_lon: fl
     return formatted
 
 
-def enrich_cinemas_with_showtimes(cinemas: list, date_str: str | None = None,
-                                  max_cinemas: int = 8):
+def enrich_cinemas_with_showtimes(cinemas, date_str=None, max_cinemas=8):
     """
     Ajoute les séances du jour aux objets cinémas (in-place) :
 
@@ -342,4 +358,25 @@ def enrich_cinemas_with_showtimes(cinemas: list, date_str: str | None = None,
     if not cinemas:
         return cinemas
 
-    if
+    if date_str is None:
+        date_str = _get_default_date_str()
+
+    count = 0
+    for cinema in cinemas:
+        if count >= max_cinemas:
+            break
+
+        name = cinema.get("name")
+        lat = cinema.get("latitude")
+        lon = cinema.get("longitude")
+        if not name or lat is None or lon is None:
+            continue
+
+        showtimes = get_showtimes_for_cinema(name, lat, lon, date_str=date_str)
+        if showtimes:
+            cinema["showtimes"] = showtimes
+            cinema["showtimesDate"] = date_str
+            count += 1
+
+    print(f"🎞️ Séances ajoutées pour {count} cinémas")
+    return cinemas
