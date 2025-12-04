@@ -189,7 +189,6 @@
             height: 100%;
             width: 100%;
             background: #e5e7eb;
-            touch-action: none; /* important pour les pointer events sur mobile */
         }
 
         #map-instructions {
@@ -339,8 +338,9 @@
 
 <script>
     const SERVER_URL = window.location.origin;
-    const LONGPRESS_DURATION = 2000;          // 2 secondes
-    const LONGPRESS_MOVE_THRESHOLD = 30;      // pixels tolérés pendant le long press
+
+    const LONGPRESS_DURATION   = 2000; // ms
+    const DRAG_DISTANCE_MAX_M  = 150;  // distance max autorisée pendant long press
 
     // État global
     let map = null;
@@ -355,17 +355,15 @@
     let cinemaLayer = null;
     let clearOldSearchTimer = null;
 
-    // État long-press
+    // État long press (en coordonnées géographiques)
     const lpState = {
         active: false,
-        startX: 0,
-        startY: 0,
         startTime: 0,
-        latlng: null,
+        startLatLng: null,
         timerId: null
     };
 
-    // ---------- UI UTIL ----------
+    // ---------- UTIL UI ----------
 
     function updateStatus(message, type = 'waiting') {
         const el = document.getElementById('status');
@@ -416,84 +414,80 @@
             attribution: '&copy; OpenStreetMap France & OpenStreetMap'
         }).addTo(map);
 
-        setupLongPressOnMap();
+        setupLongPress();
     }
 
-    function setupLongPressOnMap() {
-        // On utilise les événements Leaflet 'mousedown' + 'touchstart'
-        map.on('mousedown', onPressStart);
-        map.on('touchstart', onPressStart);
+    function setupLongPress() {
+        // Desktop
+        map.on('mousedown', (e) => {
+            if (e.originalEvent && e.originalEvent.button !== undefined &&
+                e.originalEvent.button !== 0) {
+                return; // seulement bouton gauche
+            }
+            startLongPress(e.latlng);
+        });
 
-        map.on('mousemove', onPressMove);
-        map.on('touchmove', onPressMove);
+        map.on('mousemove', (e) => {
+            moveLongPress(e.latlng);
+        });
 
-        map.on('mouseup', onPressEnd);
-        map.on('touchend', onPressEnd);
-        map.on('touchcancel', onPressEnd);
+        map.on('mouseup', () => {
+            endLongPress();
+        });
+
+        // Mobile
+        map.on('touchstart', (e) => {
+            const first = (e.latlng || (e.latlngs && e.latlngs[0]));
+            if (!first) return;
+            startLongPress(first);
+        });
+
+        map.on('touchmove', (e) => {
+            const first = (e.latlng || (e.latlngs && e.latlngs[0]));
+            if (!first) return;
+            moveLongPress(first);
+        });
+
+        map.on('touchend', () => {
+            endLongPress();
+        });
+
+        map.on('touchcancel', () => {
+            cancelLongPress();
+        });
     }
 
-    function getClientXYFromOriginalEvent(oe) {
-        // oe peut être un MouseEvent ou un TouchEvent
-        if (oe.touches && oe.touches.length > 0) {
-            return { x: oe.touches[0].clientX, y: oe.touches[0].clientY };
-        }
-        if (oe.changedTouches && oe.changedTouches.length > 0) {
-            return { x: oe.changedTouches[0].clientX, y: oe.changedTouches[0].clientY };
-        }
-        return { x: oe.clientX, y: oe.clientY };
-    }
-
-    function onPressStart(e) {
-        // Bouton gauche uniquement en mode souris
-        if (e.originalEvent && e.originalEvent.button !== undefined &&
-            e.originalEvent.button !== 0) {
-            return;
-        }
-
+    function startLongPress(latlng) {
         cancelLongPress();
 
-        const oe = e.originalEvent || e; // Leaflet enveloppe l'event natif
-        const { x, y } = getClientXYFromOriginalEvent(oe);
-
-        // Important : on laisse Leaflet calculer le latLng à partir de l'event natif
-        let latlng;
-        try {
-            latlng = map.mouseEventToLatLng(oe);
-        } catch (err) {
-            latlng = e.latlng || null;
-        }
-        if (!latlng) return;
-
         lpState.active = true;
-        lpState.startX = x;
-        lpState.startY = y;
         lpState.startTime = performance.now();
-        lpState.latlng = latlng;
+        lpState.startLatLng = latlng;
 
         lpState.timerId = setTimeout(() => {
-            if (!lpState.active || !lpState.latlng) return;
-            const { lat, lng } = lpState.latlng;
+            // Si on est encore actif et qu'on n'a pas trop bougé → long press validé
+            if (!lpState.active || !lpState.startLatLng) return;
+            const lat = lpState.startLatLng.lat;
+            const lon = lpState.startLatLng.lng;
             cancelLongPress();
             document.getElementById('map-instructions').classList.add('hidden');
-            onLocationSelected(lat, lng);
+            onLocationSelected(lat, lon);
         }, LONGPRESS_DURATION);
     }
 
-    function onPressMove(e) {
-        if (!lpState.active) return;
-        const oe = e.originalEvent || e;
-        const { x, y } = getClientXYFromOriginalEvent(oe);
-        const dx = x - lpState.startX;
-        const dy = y - lpState.startY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist > LONGPRESS_MOVE_THRESHOLD) {
+    function moveLongPress(currentLatLng) {
+        if (!lpState.active || !lpState.startLatLng) return;
+        // Distance en mètres entre le point de départ et le point actuel
+        const d = map.distance(lpState.startLatLng, currentLatLng);
+        if (d > DRAG_DISTANCE_MAX_M) {
+            // L'utilisateur pan la carte → on annule le long press
             cancelLongPress();
         }
     }
 
-    function onPressEnd() {
+    function endLongPress() {
         if (!lpState.active) return;
-        // Si le timer n'a pas eu le temps de déclencher, on annule
+        // Si le timer ne s'est pas déclenché → pas assez long
         cancelLongPress();
     }
 
@@ -503,7 +497,7 @@
             lpState.timerId = null;
         }
         lpState.active = false;
-        lpState.latlng = null;
+        lpState.startLatLng = null;
     }
 
     function clearOldSearch() {
