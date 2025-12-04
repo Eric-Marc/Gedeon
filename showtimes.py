@@ -10,14 +10,17 @@ from allocineAPI.allocineAPI import allocineAPI
 
 _api = allocineAPI()
 
-# { normalized_name: id }
+# { normalized_name: id_depart }
 _DEPARTMENTS_BY_NAME = None
 
-# { dept_id: [cinema dict, ...] }
+# { dept_id_or_city_id: [cinema dict, ...] }
 _CINEMAS_BY_DEPT = {}
 
 # { (lat_rounded, lon_rounded): dept_name_or_None }
 _DEPT_NAME_CACHE = {}
+
+# { normalized_city_name: id_ville }
+_CITIES_BY_NAME = None
 
 # Mapping code postal -> nom de département (Île-de-France, extensible)
 DEPT_CODE_TO_NAME = {
@@ -76,9 +79,9 @@ def _clean_dept_name(name):
 def _extract_department_name_from_address(address):
     """
     Essaie de déduire un *département* français à partir de l'adresse Nominatim.
-    - On préfère county / state_district
-    - On gère le cas particulier 'Île-de-France' via le code postal
-    - Dernier recours : code postal -> département
+    - priorité à county / state_district
+    - cas particulier 'Île-de-France' via le code postal
+    - dernier recours : code postal -> département
     """
     if not address:
         return None
@@ -92,7 +95,7 @@ def _extract_department_name_from_address(address):
     # 2. fallback : state (souvent la région)
     state = address.get("state")
     if state == "Île-de-France":
-        # Cas fréquent : on dérive le département via le code postal
+        # On dérive le département via le code postal
         postcode = (address.get("postcode") or "").strip()
         if len(postcode) >= 2:
             code2 = postcode[:2]
@@ -151,11 +154,11 @@ def _reverse_geocode_department(lat, lon):
     address = _call_nominatim(lat, lon, zoom=10)
     dept_name = _extract_department_name_from_address(address)
 
-    # Cas particulier : Île-de-France sans county/postcode -> on retente en zoom fin
     state = address.get("state")
     county = address.get("county")
     postcode = address.get("postcode")
 
+    # Cas particulier : Île-de-France sans county/postcode -> on retente zoom 18
     if not dept_name and state == "Île-de-France" and not county and not postcode:
         print(f"ℹ️ Requête Nominatim plus précise pour point en Île-de-France sans code postal ({lat}, {lon})")
         address2 = _call_nominatim(lat, lon, zoom=18)
@@ -164,7 +167,6 @@ def _reverse_geocode_department(lat, lon):
             _DEPT_NAME_CACHE[key] = dept_name
             print(f"🗺️ Département détecté (2e passe): {dept_name}")
             return dept_name
-        # log détaillé
         print(
             "⚠️ Impossible de déterminer le département (2e passe) pour "
             f"({lat}, {lon}) via Nominatim "
@@ -184,7 +186,6 @@ def _reverse_geocode_department(lat, lon):
         print(f"🗺️ Département approximé via bounding box: {dept_name}")
         return dept_name
 
-    # Échec complet
     print(
         "⚠️ Impossible de déterminer le département pour "
         f"({lat}, {lon}) via Nominatim "
@@ -195,7 +196,7 @@ def _reverse_geocode_department(lat, lon):
 
 
 # -------------------------------------------------
-# Récupération des départements / cinémas Allociné
+# Récupération des départements / villes / cinémas Allociné
 # -------------------------------------------------
 
 def _load_departments():
@@ -223,23 +224,78 @@ def _load_departments():
     print(f"📚 {len(mapping)} départements Allociné chargés")
 
 
-def _get_department_id_for_name(name):
+def _load_cities():
+    global _CITIES_BY_NAME
+    if _CITIES_BY_NAME is not None:
+        return
+
+    try:
+        ret = _api.get_top_villes() or []
+    except Exception as e:
+        print(f"❌ Erreur Allociné get_top_villes: {e}")
+        _CITIES_BY_NAME = {}
+        return
+
+    mapping = {}
+    for d in ret:
+        name = d.get("name")
+        vid = d.get("id")
+        if not name or not vid:
+            continue
+        norm = _normalize_text(name)
+        mapping[norm] = vid
+
+    _CITIES_BY_NAME = mapping
+    print(f"🏙️ {len(mapping)} villes Allociné chargées")
+
+
+def _get_city_id_for_name(name):
+    """Fallback : si on ne trouve pas de département pour 'Paris', on essaye via les villes."""
     if not name:
         return None
-    _load_departments()
-    if not _DEPARTMENTS_BY_NAME:
+
+    _load_cities()
+    if not _CITIES_BY_NAME:
         return None
 
     norm = _normalize_text(name)
 
     # 1) match exact
-    if norm in _DEPARTMENTS_BY_NAME:
-        return _DEPARTMENTS_BY_NAME[norm]
+    if norm in _CITIES_BY_NAME:
+        return _CITIES_BY_NAME[norm]
 
     # 2) tolérance : inclusion
-    for k, did in _DEPARTMENTS_BY_NAME.items():
+    for k, vid in _CITIES_BY_NAME.items():
         if norm in k or k in norm:
-            return did
+            return vid
+
+    return None
+
+
+def _get_department_id_for_name(name):
+    """Retourne un id Allociné d'emplacement (département ou ville)."""
+    if not name:
+        return None
+
+    # 1) on tente via les départements
+    _load_departments()
+    if _DEPARTMENTS_BY_NAME:
+        norm = _normalize_text(name)
+
+        # match exact
+        if norm in _DEPARTMENTS_BY_NAME:
+            return _DEPARTMENTS_BY_NAME[norm]
+
+        # tolérance : inclusion
+        for k, did in _DEPARTMENTS_BY_NAME.items():
+            if norm in k or k in norm:
+                return did
+
+    # 2) fallback : on tente via les villes
+    city_id = _get_city_id_for_name(name)
+    if city_id:
+        print(f"ℹ️ Utilisation de l'id de ville Allociné '{city_id}' pour '{name}' (fallback)")
+        return city_id
 
     return None
 
@@ -323,7 +379,7 @@ def _format_showtime_list(raw_list):
 
 def get_showtimes_for_cinema(cinema_name, cinema_lat, cinema_lon, date_str=None):
     """
-    Retourne les séances du jour pour un cinéma (via Allociné) :
+    Retourne les séances du jour pour un cinéma (via Allociné).
 
     [
       {
@@ -351,7 +407,7 @@ def get_showtimes_for_cinema(cinema_name, cinema_lat, cinema_lon, date_str=None)
 
     dept_id = _get_department_id_for_name(dept_name)
     if not dept_id:
-        print(f"⚠️ Impossible de trouver l'id de département Allociné pour '{dept_name}'")
+        print(f"⚠️ Impossible de trouver l'id de département/ville Allociné pour '{dept_name}'")
         return []
 
     best_cinema = _find_best_allocine_cinema(dept_id, cinema_name)
@@ -377,13 +433,15 @@ def get_showtimes_for_cinema(cinema_name, cinema_lat, cinema_lon, date_str=None)
         vo_list = _format_showtime_list(entry.get("VO"))
         vost_list = _format_showtime_list(entry.get("VOST"))
 
-        formatted.append({
-            "title": title,
-            "duration": duration,
-            "vf": vf_list,
-            "vo": vo_list,
-            "vost": vost_list,
-        })
+        formatted.append(
+            {
+                "title": title,
+                "duration": duration,
+                "vf": vf_list,
+                "vo": vo_list,
+                "vost": vost_list,
+            }
+        )
 
     return formatted
 
