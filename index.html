@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Carte des Événements OpenAgenda</title>
+    <title>Gedeon — Événements & Cinémas</title>
 
     <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
           integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
           crossorigin=""/>
 
@@ -15,7 +16,7 @@
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
             crossorigin=""></script>
 
-    <!-- Leaflet markercluster -->
+    <!-- MarkerCluster -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
@@ -33,7 +34,7 @@
             background: linear-gradient(90deg, #4f46e5, #6366f1);
             color: white;
             padding: 12px 18px;
-            box-shadow: 0 2px 4px rgba(15, 23, 42, 0.3);
+            box-shadow: 0 2px 4px rgba(15, 23, 42, 0.25);
         }
 
         #header h1 {
@@ -55,42 +56,16 @@
             background: #f9fafb;
             border-bottom: 1px solid #e5e7eb;
             display: flex;
-            justify-content: space-between;
             flex-wrap: wrap;
+            justify-content: space-between;
             gap: 10px;
         }
 
         .control-group {
             display: flex;
-            gap: 16px;
-            align-items: center;
             flex-wrap: wrap;
-        }
-
-        .slider-group {
-            display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 6px 10px;
-            background: white;
-            border-radius: 9999px;
-            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
-        }
-
-        .slider-label {
-            font-size: 12px;
-            color: #374151;
-            font-weight: 500;
-        }
-
-        .slider-value {
-            font-size: 12px;
-            color: #111827;
-            min-width: 80px;
-        }
-
-        input[type="range"] {
-            accent-color: #4f46e5;
+            gap: 12px;
         }
 
         button {
@@ -104,25 +79,51 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            box-shadow: 0 2px 4px rgba(79, 70, 229, 0.3);
-            transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.1s;
+            box-shadow: 0 2px 4px rgba(79, 70, 229, 0.35);
+            transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.12s;
         }
 
-        button:hover {
+        button:hover:not(:disabled) {
             background: #4338ca;
             transform: translateY(-1px);
-            box-shadow: 0 4px 6px rgba(79, 70, 229, 0.35);
+            box-shadow: 0 4px 6px rgba(79, 70, 229, 0.4);
         }
 
-        button:active {
+        button:active:not(:disabled) {
             transform: translateY(0);
-            box-shadow: 0 1px 2px rgba(79, 70, 229, 0.25);
+            box-shadow: 0 1px 2px rgba(79, 70, 229, 0.3);
         }
 
         button:disabled {
             background: #9ca3af;
             box-shadow: none;
             cursor: not-allowed;
+        }
+
+        .slider-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            background: white;
+            border-radius: 9999px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+        }
+
+        .slider-label {
+            font-size: 12px;
+            color: #374151;
+            font-weight: 500;
+        }
+
+        .slider-value {
+            font-size: 12px;
+            color: #111827;
+            min-width: 70px;
+        }
+
+        input[type="range"] {
+            accent-color: #4f46e5;
         }
 
         #status {
@@ -139,14 +140,11 @@
         .status.waiting  { background: #e5e7eb; color: #374151; }
         .status.active   { background: #d1fae5; color: #065f46; }
         .status.error    { background: #fee2e2; color: #991b1b; }
-
-        .status.loading {
-            animation: blinkStatus 1s ease-in-out infinite;
-        }
+        .status.loading  { animation: blinkStatus 1s ease-in-out infinite; }
 
         @keyframes blinkStatus {
             0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.5; transform: scale(0.98); }
+            50%      { opacity: 0.6; transform: scale(0.98); }
         }
 
         #stats {
@@ -154,8 +152,8 @@
             padding: 8px 18px;
             border-bottom: 1px solid #e5e7eb;
             display: flex;
-            gap: 25px;
             flex-wrap: wrap;
+            gap: 24px;
             align-items: center;
         }
 
@@ -172,7 +170,7 @@
         .stat-label {
             font-size: 11px;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.06em;
             color: #6b7280;
         }
 
@@ -184,25 +182,27 @@
 
         #map-container {
             position: relative;
-            height: calc(100vh - 180px);
+            height: calc(100vh - 185px);
         }
 
         #map {
             height: 100%;
             width: 100%;
+            background: #e5e7eb;
+            touch-action: none; /* important pour pointer events sur mobile */
         }
 
         #map-instructions {
             position: absolute;
-            top: 12px;
+            top: 10px;
             left: 50%;
             transform: translateX(-50%);
             background: rgba(15, 23, 42, 0.9);
             color: white;
-            padding: 6px 10px;
+            padding: 6px 12px;
             border-radius: 9999px;
             font-size: 12px;
-            box-shadow: 0 4px 8px rgba(15, 23, 42, 0.4);
+            box-shadow: 0 3px 8px rgba(15, 23, 42, 0.5);
             z-index: 1000;
             display: flex;
             align-items: center;
@@ -233,7 +233,7 @@
             fill: rgba(15, 23, 42, 0.55);
         }
 
-        .progress-ring__circle {
+        .progress-circle {
             fill: none;
             stroke: #22c55e;
             stroke-width: 3;
@@ -242,7 +242,6 @@
             stroke-dashoffset: 188.5;
             transform-origin: 50% 50%;
             transform: rotate(-90deg);
-            transition: stroke-dashoffset 0.05s linear;
         }
 
         .center-marker {
@@ -293,636 +292,629 @@
             text-decoration: underline;
         }
 
-        .leaflet-container {
-            background: #e5e7eb;
-        }
-
-        .leaflet-marker-icon,
-        .leaflet-marker-shadow {
-            transition: transform 0.05s ease-out;
-        }
-
         @media (max-width: 768px) {
             #header h1 { font-size: 20px; }
-            #header p { font-size: 12px; }
-            #stats { gap: 15px; }
-            .stat-value { font-size: 12px; }
-            #controls { padding: 8px 12px; }
+            #header p  { font-size: 12px; }
+            #controls  { padding: 8px 12px; }
             .control-group { flex-direction: column; align-items: stretch; }
-            .slider-group { min-width: 100%; }
-            #map-container { height: calc(100vh - 230px); }
             button { width: 100%; justify-content: center; }
+            .slider-group { width: 100%; justify-content: space-between; }
+            #map-container { height: calc(100vh - 235px); }
         }
     </style>
 </head>
 <body>
-    <div id="header">
-        <h1>🗓️ Carte des Événements OpenAgenda</h1>
-        <p>Maintenez appuyé 2 secondes sur la carte pour rechercher des événements</p>
+<div id="header">
+    <h1>🗓️ Gedeon — Événements & Cinémas</h1>
+    <p>Maintenez appuyé 2 secondes sur la carte pour choisir un point de recherche</p>
+</div>
+
+<div id="controls">
+    <div class="control-group">
+        <button id="btnMyPosition" onclick="getUserLocation()">📍 Ma position</button>
+        <button id="btnCinemas" onclick="searchNearbyCinemas()" disabled>🎬 Cinémas dans ce rayon</button>
+
+        <div class="slider-group">
+            <span class="slider-label">Rayon :</span>
+            <input type="range" id="radiusRange" min="5" max="100" value="30" step="5">
+            <span class="slider-value"><span id="radiusValue">30</span> km</span>
+        </div>
+
+        <div class="slider-group">
+            <span class="slider-label">Période :</span>
+            <input type="range" id="daysRange" min="1" max="30" value="7" step="1">
+            <span class="slider-value"><span id="daysValue">7</span> jours</span>
+        </div>
+
+        <div id="status" class="status waiting">👆 Maintenez appuyé sur la carte</div>
     </div>
+</div>
 
-    <div id="controls">
-        <div class="control-group">
-            <button id="btnMyPosition" onclick="getUserLocation()">📍 Ma position</button>
-            <button id="btnCinemas" onclick="searchNearbyCinemas()" disabled>🎬 Cinémas dans ce rayon</button>
-
-            <div class="slider-group">
-                <span class="slider-label">Rayon:</span>
-                <input type="range" id="radiusRange" min="5" max="100" value="30" step="5">
-                <span class="slider-value"><span id="radiusValue">30</span> km</span>
-            </div>
-
-            <div class="slider-group">
-                <span class="slider-label">Période:</span>
-                <input type="range" id="daysRange" min="1" max="30" value="7" step="1">
-                <span class="slider-value"><span id="daysValue">7</span> jours</span>
-            </div>
-
-            <div class="status waiting" id="status">👆 Maintenez appuyé sur la carte</div>
-        </div>
-    </div>
-
-    <div id="stats">
-        <div class="stat">
-            <span class="stat-icon">📍</span>
-            <div>
-                <div class="stat-label">Position</div>
-                <div class="stat-value" id="eventsPosition">Aucune</div>
-            </div>
-        </div>
-        <div class="stat">
-            <span class="stat-icon">🎫</span>
-            <div>
-                <div class="stat-label">Événements</div>
-                <div class="stat-value" id="eventsCount">0</div>
-            </div>
-        </div>
-        <div class="stat">
-            <span class="stat-icon">🏟️</span>
-            <div>
-                <div class="stat-label">Lieux</div>
-                <div class="stat-value" id="eventsVenues">0</div>
-            </div>
-        </div>
-        <div class="stat">
-            <span class="stat-icon">📚</span>
-            <div>
-                <div class="stat-label">Agendas</div>
-                <div class="stat-value" id="eventsAgendas">0</div>
-            </div>
+<div id="stats">
+    <div class="stat">
+        <span class="stat-icon">📍</span>
+        <div>
+            <div class="stat-label">Position</div>
+            <div class="stat-value" id="eventsPosition">Aucune</div>
         </div>
     </div>
-
-    <div id="map-container">
-        <div id="map"></div>
-        <div id="map-instructions">
-            <span>👆 Maintenez appuyé 2 secondes où vous voulez chercher</span>
+    <div class="stat">
+        <span class="stat-icon">🎫</span>
+        <div>
+            <div class="stat-label">Événements</div>
+            <div class="stat-value" id="eventsCount">0</div>
         </div>
-        <svg id="longpress-indicator" viewBox="0 0 70 70">
-            <circle class="progress-circle-bg" cx="35" cy="35" r="30"></circle>
-            <circle class="progress-ring__circle progress-circle" cx="35" cy="35" r="30"></circle>
-        </svg>
     </div>
+    <div class="stat">
+        <span class="stat-icon">🏟️</span>
+        <div>
+            <div class="stat-label">Lieux</div>
+            <div class="stat-value" id="eventsVenues">0</div>
+        </div>
+    </div>
+    <div class="stat">
+        <span class="stat-icon">📚</span>
+        <div>
+            <div class="stat-label">Agendas</div>
+            <div class="stat-value" id="eventsAgendas">0</div>
+        </div>
+    </div>
+</div>
 
-    <script>
-        // Configuration
-        var SERVER_URL = window.location.origin;
-        var LONGPRESS_DURATION = 2000; // 2 secondes
-        var LONGPRESS_MOVE_THRESHOLD = 80;
+<div id="map-container">
+    <div id="map"></div>
+    <div id="map-instructions">👆 Maintenez appuyé 2s pour choisir un point</div>
+    <svg id="longpress-indicator" viewBox="0 0 70 70">
+        <circle class="progress-circle-bg" cx="35" cy="35" r="30"></circle>
+        <circle class="progress-circle" cx="35" cy="35" r="30"></circle>
+    </svg>
+</div>
 
-        // État global
-        var map = null;
-        var currentMarkerCluster = null;
-        var currentPosition = null;
-        var currentRadiusKm = 30;
-        var currentDays = 7;
-        var currentContextLabel = '';
-        var currentFetchController = null;
-        var currentRadiusCircle = null;
-        var currentCenterMarker = null;
-        var cinemaLayer = null;
+<script>
+    // Config
+    const SERVER_URL = window.location.origin;
+    const LONGPRESS_DURATION = 2000;       // ms
+    const LONGPRESS_MOVE_THRESHOLD = 25;   // px tolérés pendant le long press
 
-        // État du long-press
-        var longPressTimer = null;
-        var longPressInterval = null;
-        var longPressStartTime = null;
-        var longPressStartPixel = null;
-        var longPressLatLng = null;
-        var longPressActive = false;
-        var clearOldSearchTimer = null;
+    // État global
+    let map = null;
+    let currentMarkerCluster = null;
+    let currentPosition = null;
+    let currentRadiusKm = 30;
+    let currentDays = 7;
+    let currentContextLabel = '';
+    let currentFetchController = null;
+    let currentRadiusCircle = null;
+    let currentCenterMarker = null;
+    let cinemaLayer = null;
 
-        // Éléments DOM
-        var indicator = document.getElementById('longpress-indicator');
-        var progressCircle = indicator.querySelector('.progress-circle');
-        var mapInstructions = document.getElementById('map-instructions');
+    // Long press (pointer events)
+    const lpState = {
+        active: false,
+        startX: 0,
+        startY: 0,
+        startTime: 0,
+        timerId: null,
+        animId: null,
+        latlng: null
+    };
 
-        // Initialiser la carte
-        function initMap() {
-            map = L.map('map', {
-                center: [46.603354, 1.888334],
-                zoom: 6,
-                tap: true,
-                tapTolerance: 15
-            });
+    let clearOldSearchTimer = null;
 
-            L.tileLayer('https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', {
-                maxZoom: 19,
-                attribution: '&copy; OpenStreetMap, OpenStreetMap France'
-            }).addTo(map);
+    // DOM
+    const indicator = document.getElementById('longpress-indicator');
+    const progressCircle = indicator.querySelector('.progress-circle');
+    const mapInstructions = document.getElementById('map-instructions');
 
-            map.on('mousedown', onPressStart);
-            map.on('touchstart', onPressStart);
-            map.on('mousemove', onPressMove);
-            map.on('touchmove', onPressMove);
-            map.on('mouseup', onPressEnd);
-            map.on('touchend', onPressEnd);
+    // ----------- UTILS UI -----------
 
-            map.on('click', function() {
-                mapInstructions.classList.add('hidden');
-            });
+    function updateStatus(message, type = 'waiting') {
+        const el = document.getElementById('status');
+        el.textContent = message;
+        el.className = 'status ' + type;
+        if (type === 'active' && message.includes('🔍')) {
+            el.classList.add('loading');
         }
+    }
 
-        function onPressStart(e) {
-            if (e.originalEvent && e.originalEvent.touches && e.originalEvent.touches.length > 1) {
-                return;
-            }
+    function updateStats(events) {
+        const venues = {};
+        const agendas = {};
+        events.forEach(ev => {
+            if (ev.locationName) venues[ev.locationName] = true;
+            if (ev.agendaTitle)  agendas[ev.agendaTitle] = true;
+        });
+        document.getElementById('eventsCount').textContent   = events.length;
+        document.getElementById('eventsVenues').textContent  = Object.keys(venues).length;
+        document.getElementById('eventsAgendas').textContent = Object.keys(agendas).length;
+    }
 
-            clearTimeout(longPressTimer);
-            clearInterval(longPressInterval);
+    function formatDate(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return iso;
+        return d.toLocaleString('fr-FR', {
+            weekday: 'short',
+            day: '2-digit',
+            month: 'short',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
 
-            longPressActive = true;
-            longPressStartTime = Date.now();
-            longPressStartPixel = map.latLngToContainerPoint(e.latlng);
-            longPressLatLng = e.latlng;
+    // ----------- CARTE + LONG PRESS -----------
 
-            indicator.style.left = e.containerPoint.x + 'px';
-            indicator.style.top = e.containerPoint.y + 'px';
+    function initMap() {
+        map = L.map('map', {
+            center: [46.603354, 1.888334],
+            zoom: 6,
+            tap: true,
+            tapTolerance: 15
+        });
+
+        L.tileLayer('https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap France & OpenStreetMap'
+        }).addTo(map);
+
+        setupLongPressOnMap();
+    }
+
+    function setupLongPressOnMap() {
+        const mapEl = map.getContainer();
+
+        mapEl.addEventListener('pointerdown', (ev) => {
+            // On ne prend que le clic gauche / touch / stylet
+            if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+
+            cancelLongPress(); // reset éventuel
+
+            const rect = mapEl.getBoundingClientRect();
+            const x = ev.clientX - rect.left;
+            const y = ev.clientY - rect.top;
+
+            lpState.active = true;
+            lpState.startX = x;
+            lpState.startY = y;
+            lpState.startTime = performance.now();
+            lpState.latlng = map.containerPointToLatLng(L.point(x, y));
+
+            indicator.style.left = ev.clientX + 'px';
+            indicator.style.top  = ev.clientY + 'px';
             progressCircle.style.strokeDashoffset = '188.5';
             indicator.classList.add('visible');
 
-            longPressInterval = setInterval(function() {
-                if (!longPressActive) {
-                    clearInterval(longPressInterval);
-                    return;
-                }
-                var elapsed = Date.now() - longPressStartTime;
-                var progress = Math.min(elapsed / LONGPRESS_DURATION, 1);
-                var offset = 188.5 * (1 - progress);
-                progressCircle.style.strokeDashoffset = String(offset);
-            }, 30);
+            // Animation / progression visuelle
+            lpState.animId = requestAnimationFrame(updateLongPressProgress);
 
-            longPressTimer = setTimeout(function() {
-                if (longPressActive && longPressLatLng) {
-                    var lat = longPressLatLng.lat;
-                    var lng = longPressLatLng.lng;
-                    cancelLongPress();
-                    mapInstructions.classList.add('hidden');
-                    onLocationSelected(lat, lng);
-                }
+            // Timer de déclenchement final
+            lpState.timerId = setTimeout(() => {
+                if (!lpState.active || !lpState.latlng) return;
+                const { lat, lng } = lpState.latlng;
+                cancelLongPress();
+                mapInstructions.classList.add('hidden');
+                onLocationSelected(lat, lng);
             }, LONGPRESS_DURATION);
-        }
+        });
 
-        function onPressMove(e) {
-            if (!longPressActive || !longPressStartPixel) return;
-            var currentPoint = map.latLngToContainerPoint(e.latlng);
-            var dx = currentPoint.x - longPressStartPixel.x;
-            var dy = currentPoint.y - longPressStartPixel.y;
-            var dist = Math.sqrt(dx * dx + dy * dy);
+        mapEl.addEventListener('pointermove', (ev) => {
+            if (!lpState.active) return;
+            const rect = mapEl.getBoundingClientRect();
+            const x = ev.clientX - rect.left;
+            const y = ev.clientY - rect.top;
+            const dx = x - lpState.startX;
+            const dy = y - lpState.startY;
+            const dist = Math.sqrt(dx*dx + dy*dy);
             if (dist > LONGPRESS_MOVE_THRESHOLD) {
                 cancelLongPress();
             }
-        }
-
-        function onPressEnd() {
-            cancelLongPress();
-        }
-
-        function cancelLongPress() {
-            longPressActive = false;
-            clearTimeout(longPressTimer);
-            clearInterval(longPressInterval);
-            indicator.classList.remove('visible');
-            progressCircle.style.strokeDashoffset = '188.5';
-        }
-
-        function clearOldSearch() {
-            if (currentMarkerCluster) {
-                map.removeLayer(currentMarkerCluster);
-                currentMarkerCluster = null;
-            }
-            if (currentRadiusCircle) {
-                map.removeLayer(currentRadiusCircle);
-                currentRadiusCircle = null;
-            }
-            if (currentCenterMarker) {
-                map.removeLayer(currentCenterMarker);
-                currentCenterMarker = null;
-            }
-            if (cinemaLayer) {
-                map.removeLayer(cinemaLayer);
-                cinemaLayer = null;
-            }
-            updateStats([]);
-        }
-
-        // Quand un point est sélectionné
-        function onLocationSelected(lat, lon) {
-            var isInFrance = (lat >= 41 && lat <= 51) && (lon >= -5 && lon <= 10);
-            if (!isInFrance) {
-                updateStatus('⚠️ Position hors France métropolitaine', 'error');
-                return;
-            }
-
-            updateStatus('🔍 Recherche de la localisation...', 'active');
-
-            getCityFromCoordinates(lat, lon).then(function(locationInfo) {
-                if (locationInfo && locationInfo.city) {
-                    currentContextLabel = 'à ' + locationInfo.city;
-                    document.getElementById('eventsPosition').textContent = locationInfo.city + ', ' + (locationInfo.country || 'France');
-                } else {
-                    currentContextLabel = 'à cette position';
-                    document.getElementById('eventsPosition').textContent = 'Position choisie';
-                }
-
-                if (clearOldSearchTimer) {
-                    clearTimeout(clearOldSearchTimer);
-                }
-                clearOldSearchTimer = setTimeout(clearOldSearch, 90 * 60 * 1000);
-
-                currentPosition = { coords: { latitude: lat, longitude: lon } };
-                var cinemaBtn = document.getElementById('btnCinemas');
-                if (cinemaBtn) {
-                    cinemaBtn.disabled = false;
-                }
-                fetchNearbyEvents(currentPosition);
-            });
-        }
-
-        // Position GPS
-        function getUserLocation() {
-            if (!navigator.geolocation) {
-                updateStatus('❌ Géolocalisation non supportée', 'error');
-                return;
-            }
-
-            clearOldSearch();
-            updateStatus('🔍 Recherche de votre position...', 'active');
-
-            navigator.geolocation.getCurrentPosition(
-                function(position) {
-                    var lat = position.coords.latitude;
-                    var lon = position.coords.longitude;
-                    map.setView([lat, lon], 11);
-                    mapInstructions.classList.add('hidden');
-                    onLocationSelected(lat, lon);
-                },
-                function(error) {
-                    var msg = '❌ ';
-                    switch (error.code) {
-                        case error.PERMISSION_DENIED:
-                            msg += 'Permission refusée (activez la localisation)';
-                            break;
-                        case error.POSITION_UNAVAILABLE:
-                            msg += 'Position non disponible';
-                            break;
-                        case error.TIMEOUT:
-                            msg += 'Délai dépassé';
-                            break;
-                        default:
-                            msg += 'Erreur de géolocalisation';
-                    }
-                    updateStatus(msg, 'error');
-                },
-                {
-                    enableHighAccuracy: true,
-                    timeout: 10000,
-                    maximumAge: 60000
-                }
-            );
-        }
-
-        // Géocodage inverse (Nominatim)
-        function getCityFromCoordinates(lat, lon) {
-            var url = 'https://nominatim.openstreetmap.org/reverse?format=json&lat=' + lat + '&lon=' + lon + '&zoom=12&addressdetails=1';
-            return fetch(url, {
-                headers: {
-                    'User-Agent': 'gedeon-demo/1.0'
-                }
-            })
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
-                if (!data) return null;
-                var address = data.address || {};
-                var city = address.city || address.town || address.village ||
-                           address.municipality || address.county || address.state;
-                return { city: city, country: address.country || '' };
-            })
-            .catch(function(e) {
-                console.error('Erreur géocodage:', e);
-                return null;
-            });
-        }
-
-        // Statut
-        function updateStatus(message, type) {
-            type = type || 'waiting';
-            var statusEl = document.getElementById('status');
-            statusEl.textContent = message;
-            statusEl.className = 'status ' + type;
-            if (type === 'active' && message.indexOf('🔍') >= 0) {
-                statusEl.classList.add('loading');
-            }
-        }
-
-        // Stats
-        function updateStats(events) {
-            var venues = {};
-            var agendas = {};
-
-            events.forEach(function(ev) {
-                if (ev.locationName) venues[ev.locationName] = true;
-                if (ev.agendaTitle) agendas[ev.agendaTitle] = true;
-            });
-
-            document.getElementById('eventsCount').textContent = events.length;
-            document.getElementById('eventsVenues').textContent = Object.keys(venues).length;
-            document.getElementById('eventsAgendas').textContent = Object.keys(agendas).length;
-        }
-
-        function formatDate(iso) {
-            if (!iso) return '';
-            var d = new Date(iso);
-            if (isNaN(d.getTime())) return iso;
-            return d.toLocaleString('fr-FR', {
-                weekday: 'short',
-                day: '2-digit',
-                month: 'short',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-        }
-
-        // Affichage des événements
-        function displayEventsOnMap(events, centerLat, centerLon, radiusKm) {
-            if (currentMarkerCluster) map.removeLayer(currentMarkerCluster);
-            if (currentRadiusCircle) map.removeLayer(currentRadiusCircle);
-            if (currentCenterMarker) map.removeLayer(currentCenterMarker);
-
-            currentMarkerCluster = L.markerClusterGroup({
-                chunkedLoading: true,
-                spiderfyOnMaxZoom: true,
-                showCoverageOnHover: false,
-                zoomToBoundsOnClick: true
-            });
-
-            if (centerLat && centerLon && radiusKm) {
-                currentRadiusCircle = L.circle([centerLat, centerLon], {
-                    radius: radiusKm * 1000,
-                    color: '#667eea',
-                    fillColor: '#667eea',
-                    fillOpacity: 0.1,
-                    weight: 2,
-                    dashArray: '5, 10',
-                    interactive: false
-                }).addTo(map);
-
-                currentCenterMarker = L.marker([centerLat, centerLon], {
-                    icon: L.divIcon({
-                        className: 'center-marker',
-                        html: '<div style="background:#ef4444;width:16px;height:16px;border-radius:9999px;border:3px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.3);"></div>',
-                        iconSize: [16, 16],
-                        iconAnchor: [8, 8]
-                    })
-                }).addTo(map).bindPopup('<strong>📍 Point de recherche</strong>');
-            }
-
-            for (var i = 0; i < events.length; i++) {
-                var event = events[i];
-                if (!event.latitude || !event.longitude) continue;
-
-                var marker = L.marker([event.latitude, event.longitude]);
-                var popupHtml = '<div class="event-popup">';
-                popupHtml += '<h3>' + (event.title || 'Événement sans titre') + '</h3>';
-                if (event.begin) popupHtml += '<div class="date">📅 ' + formatDate(event.begin) + '</div>';
-                if (event.locationName) popupHtml += '<div class="venue"><strong>📍</strong> ' + event.locationName + '</div>';
-                if (event.address) popupHtml += '<div class="address">' + event.address + (event.city ? ', ' + event.city : '') + '</div>';
-                if (event.distanceKm !== undefined) popupHtml += '<div class="distance">📏 ' + event.distanceKm + ' km</div>';
-                if (event.agendaTitle) popupHtml += '<div class="address">📚 ' + event.agendaTitle + '</div>';
-                if (event.openagendaUrl) popupHtml += '<a href="' + event.openagendaUrl + '" target="_blank" class="link">Voir les détails →</a>';
-                popupHtml += '</div>';
-
-                marker.bindPopup(popupHtml, { maxWidth: 320 });
-                currentMarkerCluster.addLayer(marker);
-            }
-
-            map.addLayer(currentMarkerCluster);
-
-            if (centerLat && centerLon && radiusKm && currentRadiusCircle) {
-                map.fitBounds(currentRadiusCircle.getBounds().pad(0.1));
-            }
-
-            updateStats(events);
-        }
-
-        // Affiche les cinémas sur la carte (avec séances Allociné si présentes)
-        function displayCinemasOnMap(cinemas) {
-            if (!map) return;
-            if (cinemaLayer) {
-                map.removeLayer(cinemaLayer);
-                cinemaLayer = null;
-            }
-            if (!cinemas || cinemas.length === 0) {
-                return;
-            }
-
-            cinemaLayer = L.layerGroup();
-
-            cinemas.forEach(function(cinema) {
-                if (!cinema.latitude || !cinema.longitude) return;
-
-                var marker = L.marker([cinema.latitude, cinema.longitude], {
-                    icon: L.divIcon({
-                        className: 'cinema-marker',
-                        html: '<div style="background:#f97316;width:18px;height:18px;border-radius:50%;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;font-size:12px;color:white;">🎬</div>',
-                        iconSize: [18, 18],
-                        iconAnchor: [9, 9]
-                    })
-                });
-
-                var popupHtml = '<div class="event-popup">';
-                popupHtml += '<h3>' + (cinema.name || 'Cinéma') + '</h3>';
-
-                if (cinema.address) {
-                    popupHtml += '<div class="address">' + cinema.address + '</div>';
-                } else if (cinema.city) {
-                    popupHtml += '<div class="address">' + cinema.city + '</div>';
-                }
-
-                if (typeof cinema.distanceKm !== 'undefined') {
-                    popupHtml += '<div class="distance">📏 ' + cinema.distanceKm + ' km</div>';
-                }
-
-                var showtimes = cinema.showtimes || [];
-                if (showtimes.length > 0) {
-                    var dateLabel = cinema.showtimesDate || '';
-                    popupHtml += '<div style="margin-top:6px;font-size:12px;"><strong>📅 Séances ' + dateLabel + '</strong><ul style="padding-left:18px;margin-top:4px;">';
-                    showtimes.forEach(function(film) {
-                        var parts = [];
-                        if (film.vf && film.vf.length) {
-                            parts.push('VF: ' + film.vf.join(', '));
-                        }
-                        if (film.vo && film.vo.length) {
-                            parts.push('VO: ' + film.vo.join(', '));
-                        }
-                        if (film.vost && film.vost.length) {
-                            parts.push('VOST: ' + film.vost.join(', '));
-                        }
-                        popupHtml += '<li><strong>' + (film.title || 'Film') + '</strong>';
-                        if (film.duration) {
-                            popupHtml += ' (' + film.duration + ')';
-                        }
-                        if (parts.length) {
-                            popupHtml += ' – ' + parts.join(' / ');
-                        }
-                        popupHtml += '</li>';
-                    });
-                    popupHtml += '</ul></div>';
-                } else {
-                    popupHtml += '<div style="margin-top:6px;font-size:12px;">🔍 Séances indisponibles pour ce cinéma.</div>';
-                }
-
-                popupHtml += '</div>';
-                marker.bindPopup(popupHtml, { maxWidth: 320 });
-                cinemaLayer.addLayer(marker);
-            });
-
-            cinemaLayer.addTo(map);
-        }
-
-        // Recherche des cinémas autour du point courant
-        function searchNearbyCinemas() {
-            if (!currentPosition) {
-                updateStatus('❌ Aucun point sélectionné pour chercher des cinémas', 'error');
-                return;
-            }
-
-            var lat = currentPosition.coords.latitude;
-            var lon = currentPosition.coords.longitude;
-            var placeText = currentContextLabel || 'autour du point';
-
-            updateStatus('🔍 Recherche des cinémas ' + placeText + '...', 'active');
-
-            var url = SERVER_URL + '/api/cinemas?lat=' + lat + '&lon=' + lon + '&radiusKm=' + currentRadiusKm + '&withShowtimes=1';
-
-            fetch(url)
-                .then(function(res) { return res.json(); })
-                .then(function(result) {
-                    if (result.status !== 'success') {
-                        updateStatus('❌ ' + (result.message || 'Erreur lors de la recherche de cinémas'), 'error');
-                        return;
-                    }
-
-                    var cinemas = result.cinemas || [];
-                    displayCinemasOnMap(cinemas);
-
-                    if (cinemas.length === 0) {
-                        updateStatus('🔍 Aucun cinéma ' + placeText, 'waiting');
-                    } else {
-                        updateStatus('✅ ' + cinemas.length + ' cinéma(s) ' + placeText, 'active');
-                    }
-                })
-                .catch(function(e) {
-                    console.error('Erreur cinémas:', e);
-                    updateStatus('❌ Erreur cinémas: ' + e.message, 'error');
-                });
-        }
-
-        // Appel /api/events/nearby
-        function fetchNearbyEvents(position) {
-            if (!position || !position.coords) {
-                updateStatus('❌ Position invalide', 'error');
-                return;
-            }
-
-            if (currentFetchController) currentFetchController.abort();
-            currentFetchController = new AbortController();
-
-            var lat = position.coords.latitude;
-            var lon = position.coords.longitude;
-            var placeText = currentContextLabel || 'à proximité';
-
-            updateStatus('🔍 Connexion au serveur...', 'active');
-
-            var url = SERVER_URL + '/api/events/nearby?lat=' + lat + '&lon=' + lon +
-                      '&radiusKm=' + currentRadiusKm + '&days=' + currentDays;
-
-            var timeoutId = setTimeout(function() {
-                currentFetchController.abort();
-            }, 90000);
-
-            updateStatus('🔍 Recherche ' + placeText + ' (' + currentRadiusKm + 'km, ' + currentDays + 'j)...', 'active');
-
-            fetch(url, { signal: currentFetchController.signal })
-                .then(function(res) {
-                    clearTimeout(timeoutId);
-                    return res.json();
-                })
-                .then(function(result) {
-                    if (result.status !== 'success') {
-                        updateStatus('❌ ' + (result.message || 'Erreur'), 'error');
-                        return;
-                    }
-
-                    var events = result.events || [];
-
-                    if (events.length === 0) {
-                        updateStatus('🔍 Aucun événement ' + placeText, 'waiting');
-                        displayEventsOnMap([], lat, lon, currentRadiusKm);
-                        return;
-                    }
-
-                    displayEventsOnMap(events, lat, lon, currentRadiusKm);
-                    updateStatus('✅ ' + events.length + ' événement(s) ' + placeText, 'active');
-                })
-                .catch(function(e) {
-                    if (e.name === 'AbortError') return;
-                    console.error(e);
-                    updateStatus('❌ Erreur de connexion: ' + e.message, 'error');
-                });
-        }
-
-        // Sliders
-        function setupSliders() {
-            var radiusRange = document.getElementById('radiusRange');
-            var radiusValue = document.getElementById('radiusValue');
-            var daysRange = document.getElementById('daysRange');
-            var daysValue = document.getElementById('daysValue');
-
-            radiusRange.addEventListener('input', function() {
-                radiusValue.textContent = radiusRange.value;
-                currentRadiusKm = parseInt(radiusRange.value, 10);
-            });
-
-            daysRange.addEventListener('input', function() {
-                daysValue.textContent = daysRange.value;
-                currentDays = parseInt(daysRange.value, 10);
-            });
-
-            radiusRange.addEventListener('change', function() {
-                if (currentPosition) fetchNearbyEvents(currentPosition);
-            });
-
-            daysRange.addEventListener('change', function() {
-                if (currentPosition) fetchNearbyEvents(currentPosition);
-            });
-        }
-
-        // Initialisation
-        window.addEventListener('load', function() {
-            initMap();
-            setupSliders();
-            updateStatus('👆 Maintenez appuyé sur la carte', 'waiting');
         });
-    </script>
+
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach(type => {
+            mapEl.addEventListener(type, () => {
+                cancelLongPress();
+            });
+        });
+    }
+
+    function updateLongPressProgress() {
+        if (!lpState.active) {
+            progressCircle.style.strokeDashoffset = '188.5';
+            return;
+        }
+        const elapsed = performance.now() - lpState.startTime;
+        const progress = Math.min(elapsed / LONGPRESS_DURATION, 1);
+        const offset = 188.5 * (1 - progress);
+        progressCircle.style.strokeDashoffset = String(offset);
+
+        if (progress < 1 && lpState.active) {
+            lpState.animId = requestAnimationFrame(updateLongPressProgress);
+        }
+    }
+
+    function cancelLongPress() {
+        if (!lpState.active && !lpState.timerId && !lpState.animId) return;
+        lpState.active = false;
+        if (lpState.timerId) {
+            clearTimeout(lpState.timerId);
+            lpState.timerId = null;
+        }
+        if (lpState.animId) {
+            cancelAnimationFrame(lpState.animId);
+            lpState.animId = null;
+        }
+        indicator.classList.remove('visible');
+        progressCircle.style.strokeDashoffset = '188.5';
+    }
+
+    function clearOldSearch() {
+        if (currentMarkerCluster) {
+            map.removeLayer(currentMarkerCluster);
+            currentMarkerCluster = null;
+        }
+        if (currentRadiusCircle) {
+            map.removeLayer(currentRadiusCircle);
+            currentRadiusCircle = null;
+        }
+        if (currentCenterMarker) {
+            map.removeLayer(currentCenterMarker);
+            currentCenterMarker = null;
+        }
+        if (cinemaLayer) {
+            map.removeLayer(cinemaLayer);
+            cinemaLayer = null;
+        }
+        updateStats([]);
+    }
+
+    // ----------- POSITION / GÉOCODAGE -----------
+
+    function getUserLocation() {
+        if (!navigator.geolocation) {
+            updateStatus('❌ Géolocalisation non supportée', 'error');
+            return;
+        }
+
+        clearOldSearch();
+        updateStatus('🔍 Recherche de votre position...', 'active');
+
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                const lat = pos.coords.latitude;
+                const lon = pos.coords.longitude;
+                map.setView([lat, lon], 11);
+                mapInstructions.classList.add('hidden');
+                onLocationSelected(lat, lon);
+            },
+            (err) => {
+                let msg = '❌ ';
+                switch (err.code) {
+                    case err.PERMISSION_DENIED:
+                        msg += 'Permission refusée (activez la localisation)';
+                        break;
+                    case err.POSITION_UNAVAILABLE:
+                        msg += 'Position non disponible';
+                        break;
+                    case err.TIMEOUT:
+                        msg += 'Délai dépassé';
+                        break;
+                    default:
+                        msg += 'Erreur de géolocalisation';
+                }
+                updateStatus(msg, 'error');
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 60000
+            }
+        );
+    }
+
+    function getCityFromCoordinates(lat, lon) {
+        const url = 'https://nominatim.openstreetmap.org/reverse?format=json&lat='
+            + lat + '&lon=' + lon + '&zoom=12&addressdetails=1';
+
+        return fetch(url, {
+            headers: { 'User-Agent': 'gedeon-demo/1.0' }
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (!data) return null;
+                const addr = data.address || {};
+                const city = addr.city || addr.town || addr.village ||
+                             addr.municipality || addr.county || addr.state;
+                return {
+                    city: city || null,
+                    country: addr.country || null
+                };
+            })
+            .catch(() => null);
+    }
+
+    function onLocationSelected(lat, lon) {
+        // Filtre France métropolitaine simple
+        const isInFrance = (lat >= 41 && lat <= 51) && (lon >= -5 && lon <= 10);
+        if (!isInFrance) {
+            updateStatus('⚠️ Position hors France métropolitaine', 'error');
+            return;
+        }
+
+        updateStatus('🔍 Recherche de la localisation…', 'active');
+
+        getCityFromCoordinates(lat, lon).then(info => {
+            if (info && info.city) {
+                currentContextLabel = 'à ' + info.city;
+                document.getElementById('eventsPosition').textContent =
+                    info.city + (info.country ? ', ' + info.country : '');
+            } else {
+                currentContextLabel = 'à cette position';
+                document.getElementById('eventsPosition').textContent = 'Position choisie';
+            }
+
+            if (clearOldSearchTimer) {
+                clearTimeout(clearOldSearchTimer);
+            }
+            clearOldSearchTimer = setTimeout(clearOldSearch, 90 * 60 * 1000);
+
+            currentPosition = { coords: { latitude: lat, longitude: lon } };
+            const cinemaBtn = document.getElementById('btnCinemas');
+            if (cinemaBtn) cinemaBtn.disabled = false;
+
+            fetchNearbyEvents(currentPosition);
+        });
+    }
+
+    // ----------- ÉVÉNEMENTS (OpenAgenda) -----------
+
+    function displayEventsOnMap(events, centerLat, centerLon, radiusKm) {
+        if (currentMarkerCluster) map.removeLayer(currentMarkerCluster);
+        if (currentRadiusCircle) map.removeLayer(currentRadiusCircle);
+        if (currentCenterMarker) map.removeLayer(currentCenterMarker);
+
+        currentMarkerCluster = L.markerClusterGroup({
+            chunkedLoading: true,
+            spiderfyOnMaxZoom: true,
+            showCoverageOnHover: false,
+            zoomToBoundsOnClick: true
+        });
+
+        if (centerLat != null && centerLon != null && radiusKm != null) {
+            currentRadiusCircle = L.circle([centerLat, centerLon], {
+                radius: radiusKm * 1000,
+                color: '#667eea',
+                fillColor: '#667eea',
+                fillOpacity: 0.1,
+                weight: 2,
+                dashArray: '5, 10',
+                interactive: false
+            }).addTo(map);
+
+            currentCenterMarker = L.marker([centerLat, centerLon], {
+                icon: L.divIcon({
+                    className: 'center-marker',
+                    html: '<div style="background:#ef4444;width:16px;height:16px;border-radius:9999px;border:3px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.35);"></div>',
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8]
+                })
+            }).addTo(map).bindPopup('<strong>📍 Point de recherche</strong>');
+        }
+
+        events.forEach(ev => {
+            if (!ev.latitude || !ev.longitude) return;
+            const marker = L.marker([ev.latitude, ev.longitude]);
+            let html = '<div class="event-popup">';
+            html += '<h3>' + (ev.title || 'Événement sans titre') + '</h3>';
+            if (ev.begin) html += '<div class="date">📅 ' + formatDate(ev.begin) + '</div>';
+            if (ev.locationName) html += '<div class="venue"><strong>📍</strong> ' + ev.locationName + '</div>';
+            if (ev.address) html += '<div class="address">' + ev.address + (ev.city ? ', ' + ev.city : '') + '</div>';
+            if (ev.distanceKm != null) html += '<div class="distance">📏 ' + ev.distanceKm + ' km</div>';
+            if (ev.agendaTitle) html += '<div class="address">📚 ' + ev.agendaTitle + '</div>';
+            if (ev.openagendaUrl) {
+                html += '<a href="' + ev.openagendaUrl + '" target="_blank" class="link">Voir les détails →</a>';
+            }
+            html += '</div>';
+            marker.bindPopup(html, { maxWidth: 320 });
+            currentMarkerCluster.addLayer(marker);
+        });
+
+        map.addLayer(currentMarkerCluster);
+
+        if (currentRadiusCircle) {
+            map.fitBounds(currentRadiusCircle.getBounds().pad(0.1));
+        }
+
+        updateStats(events);
+    }
+
+    function fetchNearbyEvents(position) {
+        if (!position || !position.coords) {
+            updateStatus('❌ Position invalide', 'error');
+            return;
+        }
+
+        if (currentFetchController) currentFetchController.abort();
+        currentFetchController = new AbortController();
+
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        const placeText = currentContextLabel || 'à proximité';
+
+        updateStatus('🔍 Connexion au serveur…', 'active');
+
+        const url = SERVER_URL + '/api/events/nearby?lat=' + lat +
+            '&lon=' + lon + '&radiusKm=' + currentRadiusKm + '&days=' + currentDays;
+
+        const timeoutId = setTimeout(() => {
+            currentFetchController.abort();
+        }, 90000);
+
+        updateStatus('🔍 Recherche ' + placeText +
+            ' (' + currentRadiusKm + ' km, ' + currentDays + ' j)…', 'active');
+
+        fetch(url, { signal: currentFetchController.signal })
+            .then(res => {
+                clearTimeout(timeoutId);
+                return res.json();
+            })
+            .then(result => {
+                if (result.status !== 'success') {
+                    updateStatus('❌ ' + (result.message || 'Erreur'), 'error');
+                    return;
+                }
+                const events = result.events || [];
+                if (events.length === 0) {
+                    updateStatus('🔍 Aucun événement ' + placeText, 'waiting');
+                    displayEventsOnMap([], lat, lon, currentRadiusKm);
+                    return;
+                }
+                displayEventsOnMap(events, lat, lon, currentRadiusKm);
+                updateStatus('✅ ' + events.length + ' événement(s) ' + placeText, 'active');
+            })
+            .catch(e => {
+                if (e.name === 'AbortError') return;
+                console.error(e);
+                updateStatus('❌ Erreur de connexion: ' + e.message, 'error');
+            });
+    }
+
+    // ----------- CINÉMAS (OSM + Allociné) -----------
+
+    function displayCinemasOnMap(cinemas) {
+        if (!map) return;
+        if (cinemaLayer) {
+            map.removeLayer(cinemaLayer);
+            cinemaLayer = null;
+        }
+        if (!cinemas || cinemas.length === 0) return;
+
+        cinemaLayer = L.layerGroup();
+
+        cinemas.forEach(cinema => {
+            if (!cinema.latitude || !cinema.longitude) return;
+
+            const marker = L.marker([cinema.latitude, cinema.longitude], {
+                icon: L.divIcon({
+                    className: 'cinema-marker',
+                    html: '<div style="background:#f97316;width:18px;height:18px;border-radius:50%;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;font-size:12px;color:white;">🎬</div>',
+                    iconSize: [18, 18],
+                    iconAnchor: [9, 9]
+                })
+            });
+
+            let html = '<div class="event-popup">';
+            html += '<h3>' + (cinema.name || 'Cinéma') + '</h3>';
+
+            if (cinema.address) {
+                html += '<div class="address">' + cinema.address + '</div>';
+            } else if (cinema.city) {
+                html += '<div class="address">' + cinema.city + '</div>';
+            }
+            if (cinema.distanceKm != null) {
+                html += '<div class="distance">📏 ' + cinema.distanceKm + ' km</div>';
+            }
+
+            const showtimes = cinema.showtimes || [];
+            if (showtimes.length > 0) {
+                const dateLabel = cinema.showtimesDate || '';
+                html += '<div style="margin-top:6px;font-size:12px;"><strong>📅 Séances ' +
+                    dateLabel + '</strong><ul style="padding-left:18px;margin-top:4px;">';
+                showtimes.forEach(film => {
+                    const vf   = (film.vf   && film.vf.length)   ? 'VF: '   + film.vf.join(', ')   : null;
+                    const vo   = (film.vo   && film.vo.length)   ? 'VO: '   + film.vo.join(', ')   : null;
+                    const vost = (film.vost && film.vost.length) ? 'VOST: ' + film.vost.join(', ') : null;
+                    const parts = [vf, vo, vost].filter(Boolean);
+                    html += '<li><strong>' + (film.title || 'Film') + '</strong>';
+                    if (film.duration) html += ' (' + film.duration + ')';
+                    if (parts.length) html += ' – ' + parts.join(' / ');
+                    html += '</li>';
+                });
+                html += '</ul></div>';
+            } else {
+                html += '<div style="margin-top:6px;font-size:12px;">🔍 Séances indisponibles pour ce cinéma.</div>';
+            }
+
+            html += '</div>';
+            marker.bindPopup(html, { maxWidth: 320 });
+            cinemaLayer.addLayer(marker);
+        });
+
+        cinemaLayer.addTo(map);
+    }
+
+    function searchNearbyCinemas() {
+        if (!currentPosition) {
+            updateStatus('❌ Aucun point sélectionné pour chercher des cinémas', 'error');
+            return;
+        }
+
+        const lat = currentPosition.coords.latitude;
+        const lon = currentPosition.coords.longitude;
+        const placeText = currentContextLabel || 'autour du point';
+
+        updateStatus('🔍 Recherche des cinémas ' + placeText + '…', 'active');
+
+        const url = SERVER_URL + '/api/cinemas?lat=' + lat + '&lon=' + lon +
+            '&radiusKm=' + currentRadiusKm + '&withShowtimes=1';
+
+        fetch(url)
+            .then(res => res.json())
+            .then(result => {
+                if (result.status !== 'success') {
+                    updateStatus('❌ ' + (result.message || 'Erreur lors de la recherche de cinémas'), 'error');
+                    return;
+                }
+
+                const cinemas = result.cinemas || [];
+                displayCinemasOnMap(cinemas);
+
+                if (cinemas.length === 0) {
+                    updateStatus('🔍 Aucun cinéma ' + placeText, 'waiting');
+                } else {
+                    updateStatus('✅ ' + cinemas.length + ' cinéma(s) ' + placeText, 'active');
+                }
+            })
+            .catch(e => {
+                console.error('Erreur cinémas:', e);
+                updateStatus('❌ Erreur cinémas: ' + e.message, 'error');
+            });
+    }
+
+    // ----------- SLIDERS -----------
+
+    function setupSliders() {
+        const radiusRange = document.getElementById('radiusRange');
+        const radiusValue = document.getElementById('radiusValue');
+        const daysRange   = document.getElementById('daysRange');
+        const daysValue   = document.getElementById('daysValue');
+
+        radiusRange.addEventListener('input', () => {
+            radiusValue.textContent = radiusRange.value;
+            currentRadiusKm = parseInt(radiusRange.value, 10);
+            if (currentRadiusCircle) currentRadiusCircle.setRadius(currentRadiusKm * 1000);
+        });
+
+        daysRange.addEventListener('input', () => {
+            daysValue.textContent = daysRange.value;
+            currentDays = parseInt(daysRange.value, 10);
+        });
+
+        radiusRange.addEventListener('change', () => {
+            if (currentPosition) fetchNearbyEvents(currentPosition);
+        });
+
+        daysRange.addEventListener('change', () => {
+            if (currentPosition) fetchNearbyEvents(currentPosition);
+        });
+    }
+
+    // ----------- INIT -----------
+
+    window.addEventListener('load', () => {
+        initMap();
+        setupSliders();
+        updateStatus('👆 Maintenez appuyé sur la carte', 'waiting');
+    });
+</script>
 </body>
 </html>
